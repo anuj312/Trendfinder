@@ -1637,3 +1637,28 @@ html[data-theme="light"] .page-title.page-title--pill::before{
   
 }
 
+html[data-theme="light"] #gainersTable,
+html[data-theme="light"] #losersTable{
+  background: var(--card-bg) !important;
+}
+
+html[data-theme="light"] #gainersTable table,
+html[data-theme="light"] #losersTable table{
+  background-color: transparent !important;
+  color: var(--text) !important;
+}
+
+/* If Bootstrap's table-dark is applied */
+html[data-theme="light"] #gainersTable .table-dark,
+html[data-theme="light"] #losersTable  .table-dark{
+  --bs-table-bg: transparent !important;
+  --bs-table-color: var(--text) !important;
+  --bs-table-striped-bg: rgba(15,23,42,0.03) !important;
+  --bs-table-striped-color: var(--text) !important;
+  --bs-table-hover-bg: rgba(15,23,42,0.06) !important;
+  --bs-table-hover-color: var(--text) !important;
+
+  background-color: transparent !important;
+  color: var(--text) !important;
+}
+

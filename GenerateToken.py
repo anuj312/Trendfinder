@@ -21,13 +21,13 @@ RENDER_API_KEY = "rnd_bfpmPHYqGiHXn0euY1BP9nxttP6k"
 RENDER_API = "https://api.render.com/v1"
 
 SERVICES = {
-    "intraday":"srv-d8rttdvlk1mc73cc02m0",
+    "intraday":"srv-d9dknpbbc2fs73e8ivmg",
 }
 PYTHON_VERSION = "3.11.9"
 
 # Your target login details to be pushed to Render
 APP_LOGIN_USER = "momentum"
-APP_LOGIN_PASS = "Momentum@123#"
+APP_LOGIN_PASS = "55"
 
 # =============================================================================
 # SAVE TOKEN CONFIG

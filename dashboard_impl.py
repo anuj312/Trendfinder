@@ -1564,7 +1564,7 @@ def start_ticker_once():
 # =============================================================================
 dash_app = dash.Dash(
     __name__,
-    external_stylesheets=[dbc.themes.CYBORG],
+    external_stylesheets=[dbc.themes.CYBORG, dbc.icons.BOOTSTRAP],  # <-- add this
     requests_pathname_prefix=BASE,
     routes_pathname_prefix="/",
     assets_folder=os.path.join(os.path.dirname(__file__), "assets"),
@@ -1927,7 +1927,7 @@ def sectors_page():
 
             dbc.Row(
                 [
-                    dbc.Col(html.H4("Sectors", className="page-title mb-0"), width="auto"),
+                    dbc.Col(html.H4("Sectors", className="page-title page-title--pill mb-0"), width="auto"),
                     dbc.Col(
     html.Div(
         [
@@ -2195,34 +2195,52 @@ dash_app.layout = dbc.Container(
         dcc.Interval(id="top_refresh", interval=1000, n_intervals=0),
 
         html.Div(
-            dbc.Row(
-                [
-                    dbc.Col(
-                        html.Div(
-                            [html.Img(src=dash.get_asset_url("turbotrades.svg"), className="tt-logo")],
-                            className="tt-brand",
-                        ),
-                        width=True,
-                    ),
-                    dbc.Col(html.Div(id="top-stats"), width="auto"),
-                    dbc.Col(
-                        dbc.Button(
-                            "LogOff",
-                            href="/auth/logout",
-                            external_link=True,
-                            color="danger",
-                            outline=True,
-                            size="sm",
-                            className="tt-logout-btn",
-                            style={"fontWeight": "700"},
-                        ),
-                        width="auto",
-                    ),
-                ],
-                className="align-items-center g-2 flex-wrap",
+    dbc.Row(
+        [
+            dbc.Col(
+                html.Div(
+                    [html.Img(src=dash.get_asset_url("turbotrades.svg"), className="tt-logo")],
+                    className="tt-brand",
+                ),
+                width=True,
             ),
-            className="topbar-wrap",
-        ),
+
+            dbc.Col(html.Div(id="top-stats"), width="auto"),
+
+            # ✅ ADD THIS COLUMN (Theme toggle) RIGHT HERE
+            dbc.Col(
+                html.Button(
+                    [
+                        html.I(className="bi bi-sun icon-sun", **{"aria-hidden": "true"}),
+                        html.I(className="bi bi-moon-stars icon-moon", **{"aria-hidden": "true"}),
+                    ],
+                    id="themeToggle",
+                    className="theme-toggle",
+                    type="button",
+                    title="Toggle theme",
+                    **{"aria-label": "Toggle theme"},
+                ),
+                width="auto",
+            ),
+
+            dbc.Col(
+                dbc.Button(
+                    "LogOff",
+                    href="/auth/logout",
+                    external_link=True,
+                    color="danger",
+                    outline=True,
+                    size="sm",
+                    className="tt-logout-btn",
+                    style={"fontWeight": "700"},
+                ),
+                width="auto",
+            ),
+        ],
+        className="align-items-center g-2 flex-wrap",
+    ),
+    className="topbar-wrap",
+),
 
         html.Div(id="app-body"),
         sector_modal_component(),

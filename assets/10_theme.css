@@ -1637,28 +1637,39 @@ html[data-theme="light"] .page-title.page-title--pill::before{
   
 }
 
-html[data-theme="light"] #gainersTable,
-html[data-theme="light"] #losersTable{
+
+
+/* ===========================================
+   AG GRID: make our variables win everywhere
+   (fixes Render prod load order issues)
+=========================================== */
+html .ag-theme-alpine-dark{
+  --ag-foreground-color: var(--text) !important;
+  --ag-secondary-foreground-color: var(--muted) !important;
+
+  --ag-background-color: transparent !important;
+  --ag-border-color: var(--border2) !important;
+  --ag-row-border-color: var(--border2) !important;
+
+  --ag-header-foreground-color: var(--text) !important;
+  --ag-header-background-color: var(--card-hd-bg) !important;
+}
+
+/* Row colors per theme (avoid color-mix to be extra stable) */
+html[data-theme="light"] .ag-theme-alpine-dark{
+  --ag-odd-row-background-color: rgba(15,23,42,0.03) !important;
+  --ag-row-hover-color: rgba(15,23,42,0.06) !important;
+}
+
+html[data-theme="dark"] .ag-theme-alpine-dark{
+  --ag-odd-row-background-color: rgba(255,255,255,0.03) !important;
+  --ag-row-hover-color: rgba(255,255,255,0.06) !important;
+}
+
+html .ag-theme-alpine-dark .ag-root-wrapper{
   background: var(--card-bg) !important;
 }
 
-html[data-theme="light"] #gainersTable table,
-html[data-theme="light"] #losersTable table{
-  background-color: transparent !important;
-  color: var(--text) !important;
+html .ag-theme-alpine-dark .ag-header{
+  background: var(--card-hd-bg) !important;
 }
-
-/* If Bootstrap's table-dark is applied */
-html[data-theme="light"] #gainersTable .table-dark,
-html[data-theme="light"] #losersTable  .table-dark{
-  --bs-table-bg: transparent !important;
-  --bs-table-color: var(--text) !important;
-  --bs-table-striped-bg: rgba(15,23,42,0.03) !important;
-  --bs-table-striped-color: var(--text) !important;
-  --bs-table-hover-bg: rgba(15,23,42,0.06) !important;
-  --bs-table-hover-color: var(--text) !important;
-
-  background-color: transparent !important;
-  color: var(--text) !important;
-}
-

@@ -1564,7 +1564,7 @@ def start_ticker_once():
 # =============================================================================
 dash_app = dash.Dash(
     __name__,
-    external_stylesheets=[dbc.themes.CYBORG, dbc.icons.BOOTSTRAP],  # <-- add this
+    external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.BOOTSTRAP],  # <-- add this
     requests_pathname_prefix=BASE,
     routes_pathname_prefix="/",
     assets_folder=os.path.join(os.path.dirname(__file__), "assets"),

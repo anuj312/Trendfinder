@@ -1673,3 +1673,18 @@ html .ag-theme-alpine-dark .ag-root-wrapper{
 html .ag-theme-alpine-dark .ag-header{
   background: var(--card-hd-bg) !important;
 }
+
+/* Top 15 headings: color the dot */
+.page-wrap h6.tt-top15-gainers::before{
+  background: var(--good) !important;
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--good) 18%, transparent),
+    0 0 10px color-mix(in srgb, var(--good) 35%, transparent) !important;
+}
+
+.page-wrap h6.tt-top15-losers::before{
+  background: var(--bad) !important;
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--bad) 18%, transparent),
+    0 0 10px color-mix(in srgb, var(--bad) 35%, transparent) !important;
+}

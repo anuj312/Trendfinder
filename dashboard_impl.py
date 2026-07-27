@@ -2196,54 +2196,60 @@ dash_app.layout = dbc.Container(
 
         html.Div(
     dbc.Row(
-    [
-        # Logo should not take flex space
-        dbc.Col(
-            html.Div(
-                [html.Img(src=dash.get_asset_url("turbotrades.svg"), className="tt-logo")],
-                className="tt-brand",
+        [
+            # BRAND
+            dbc.Col(
+                html.Div(
+                    [html.Img(src=dash.get_asset_url("turbotrades.svg"), className="tt-logo")],
+                    className="tt-brand",
+                ),
+                width="auto",
+                className="top-brand-col",
             ),
-            width="auto",
-        ),
 
-        # Top stats should take remaining space and be allowed to shrink
-        dbc.Col(
-            html.Div(id="top-stats"),
-            width=True,
-            style={"minWidth": 0},   # important
-        ),
-
-        dbc.Col(
-            html.Button(
-                [
-                    html.I(className="bi bi-sun icon-sun", **{"aria-hidden": "true"}),
-                    html.I(className="bi bi-moon-stars icon-moon", **{"aria-hidden": "true"}),
-                ],
-                id="themeToggle",
-                className="theme-toggle",
-                type="button",
-                title="Toggle theme",
-                **{"aria-label": "Toggle theme"},
+            # CHIPS
+            dbc.Col(
+                html.Div(id="top-stats"),
+                width=True,
+                className="top-stats-col",
+                style={"minWidth": 0},  # IMPORTANT: allows flex shrink / prevents wrap bugs
             ),
-            width="auto",
-        ),
 
-        dbc.Col(
-            dbc.Button(
-                "LogOff",
-                href="/auth/logout",
-                external_link=True,
-                color="danger",
-                outline=True,
-                size="sm",
-                className="tt-logout-btn",
-                style={"fontWeight": "700"},
+            # THEME TOGGLE
+            dbc.Col(
+                html.Button(
+                    [
+                        html.I(className="bi bi-sun icon-sun", **{"aria-hidden": "true"}),
+                        html.I(className="bi bi-moon-stars icon-moon", **{"aria-hidden": "true"}),
+                    ],
+                    id="themeToggle",
+                    className="theme-toggle",
+                    type="button",
+                    title="Toggle theme",
+                    **{"aria-label": "Toggle theme"},
+                ),
+                width="auto",
+                className="top-theme-col",
             ),
-            width="auto",
-        ),
-    ],
-    className="align-items-center g-2 flex-md-nowrap flex-wrap",
-),
+
+            # LOGOFF
+            dbc.Col(
+                dbc.Button(
+                    "LogOff",
+                    href="/auth/logout",
+                    external_link=True,
+                    color="danger",
+                    outline=True,
+                    size="sm",
+                    className="tt-logout-btn",
+                    style={"fontWeight": "700"},
+                ),
+                width="auto",
+                className="top-logoff-col",
+            ),
+        ],
+        className="topbar-row align-items-center g-2",
+    ),
     className="topbar-wrap",
 ),
 

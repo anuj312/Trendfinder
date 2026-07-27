@@ -1723,12 +1723,3 @@ html .ag-theme-alpine-dark .ag-header{
   fill: var(--heatmap-bg) !important;
 }
 
-/* Topbar: keep chips on one line (scroll if needed) */
-.top-stats-wrap{
-  flex-wrap: nowrap !important;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none; /* Firefox */
-}
-.top-stats-wrap::-webkit-scrollbar{ display:none; } /* Chrome/Safari */
-.top-stats-wrap > *{ flex: 0 0 auto; }

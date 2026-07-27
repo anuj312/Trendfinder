@@ -1,135 +1,52 @@
+/* 99_zz_mobile.css
 /* ==========================================================
-   TurboTrades – PREMIUM MOBILE ONLY STYLES
+   TurboTrades – PREMIUM MOBILE ONLY STYLES (CLEAN)
    Applies ONLY to screens ≤ 768px
-   Designed for: Elite Dark Mode Dashboard Experience
+   Put this file in: assets/   (loads late because 99_zz_*)
 ========================================================== */
 
-/* Desktop defaults (Kept clean and untouched) */
+/* Desktop defaults (leave desktop untouched) */
 .desktop-only { display: block; }
 .mobile-only  { display: none; }
 
 
 /* ==========================================================
-   MOBILE + SMALL TABLETS (OPTIMIZED & POLISHED)
+   MOBILE + SMALL TABLETS
 ========================================================== */
 @media screen and (max-width: 768px) {
 
-  /* Modern CSS Variables for easy customization */
+  /* --------------------------------------------------------
+     Mobile variables (scoped to mobile)
+  -------------------------------------------------------- */
   :root {
     --brand-primary: #007aff;
     --brand-primary-glow: rgba(0, 122, 255, 0.35);
+
     --bg-card: rgba(255, 255, 255, 0.035);
     --bg-card-hover: rgba(255, 255, 255, 0.07);
+
     --border-subtle: rgba(255, 255, 255, 0.08);
-    --border-focus: rgba(0, 122, 255, 0.5);
-    --text-muted: rgba(255, 255, 255, 0.5);
+    --border-focus: rgba(0, 122, 255, 0.50);
+
+    --text-muted: rgba(255, 255, 255, 0.50);
     --text-bright: #ffffff;
+
     --glass-blur: blur(12px);
     --transition-premium: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
-    /* ======================================================
-     EXTRA: shrink %CHG / MOMENTUM / VOL columns (Top15 Mobile)
-  ====================================================== */
-
-  /* Make these 3 numeric columns smaller than STOCK */
-  #top15-gainers-grid-m .ag-cell[col-id="%Change"],
-  #top15-losers-grid-m  .ag-cell[col-id="%Change"],
-  #top15-gainers-grid-m .ag-cell[col-id="RFactor"],
-  #top15-losers-grid-m  .ag-cell[col-id="RFactor"],
-  #top15-gainers-grid-m .ag-cell[col-id="Vol"],
-  #top15-losers-grid-m  .ag-cell[col-id="Vol"]{
-    font-size: 12px !important;
-    line-height: 1.05 !important;
-  }
-
-  /* Force the pill/renderer content inside those columns too */
-  #top15-gainers-grid-m .ag-cell[col-id="%Change"] *,
-  #top15-losers-grid-m  .ag-cell[col-id="%Change"] *,
-  #top15-gainers-grid-m .ag-cell[col-id="RFactor"] *,
-  #top15-losers-grid-m  .ag-cell[col-id="RFactor"] *,
-  #top15-gainers-grid-m .ag-cell[col-id="Vol"] *,
-  #top15-losers-grid-m  .ag-cell[col-id="Vol"] *{
-    font-size: 12px !important;
-    line-height: 1.05 !important;
-  }
-
-  /* Optional: tighter pill padding so it looks proportional */
-  #top15-gainers-grid-m .ag-cell[col-id="%Change"] .tt-pill,
-  #top15-losers-grid-m  .ag-cell[col-id="%Change"] .tt-pill,
-  #top15-gainers-grid-m .ag-cell[col-id="RFactor"] .tt-pill,
-  #top15-losers-grid-m  .ag-cell[col-id="RFactor"] .tt-pill,
-  #top15-gainers-grid-m .ag-cell[col-id="Vol"] .tt-pill,
-  #top15-losers-grid-m  .ag-cell[col-id="Vol"] .tt-pill{
-    padding: 2px 7px !important;
-  }
-
-    /* ======================================================
-     Sector MODAL grid (mobile): shrink numbers like Top15
-     Affects: Symbol / DirR / Price / %Change / RVOLm
-  ====================================================== */
-
-  /* Base smaller font for all sector modal cells */
-  #sector-modal-grid-m .ag-cell,
-  #sector-modal-grid-m .ag-cell-value{
-    font-size: 12px !important;
-    line-height: 1.05 !important;
-  }
-
-  /* Headers smaller */
-  #sector-modal-grid-m .ag-header-cell-text{
-    font-size: 9px !important;
-    letter-spacing: 0.35px !important;
-  }
-
-  /* Keep STOCK slightly bigger */
-  #sector-modal-grid-m .ag-cell[col-id="Symbol"],
-  #sector-modal-grid-m .ag-cell[col-id="Symbol"] *{
-    font-size: 12px !important;
-    font-weight: 700 !important;
-  }
-
-  /* Make numeric columns smaller */
-  #sector-modal-grid-m .ag-cell[col-id="DirR"],
-  #sector-modal-grid-m .ag-cell[col-id="Price"],
-  #sector-modal-grid-m .ag-cell[col-id="%Change"],
-  #sector-modal-grid-m .ag-cell[col-id="RVOLm"]{
-    font-size: 12px !important;
-    line-height: 1.05 !important;
-  }
-
-  /* Force renderer/pill content inside numeric columns too */
-  #sector-modal-grid-m .ag-cell[col-id="DirR"] *,
-  #sector-modal-grid-m .ag-cell[col-id="Price"] *,
-  #sector-modal-grid-m .ag-cell[col-id="%Change"] *,
-  #sector-modal-grid-m .ag-cell[col-id="RVOLm"] *{
-    font-size: 12px !important;
-    line-height: 1.05 !important;
-  }
-
-  .sectors-sort-dd {
-  width: 100%;
-}
-.sectors-sort-dd.form-select {
-  background: rgba(255,255,255,0.035) !important;
-  border: 1px solid rgba(255,255,255,0.08) !important;
-  color: rgba(255,255,255,0.9) !important;
-  border-radius: 14px !important;
-  padding: 10px 12px !important;
-  font-weight: 700 !important;
-  font-size: 12px !important;
-}
-
-  /* ======================================================
-     GLOBAL LAYOUT & TYPOGRAPHY
-  ====================================================== */
-
+  /* --------------------------------------------------------
+     Show/Hide helpers
+  -------------------------------------------------------- */
   .desktop-only { display: none !important; }
   .mobile-only  { display: block !important; }
 
+  /* --------------------------------------------------------
+     Base / layout
+  -------------------------------------------------------- */
   body {
     overflow-x: hidden;
-    background-color: #0d0e12; /* Rich premium dark depth */
+    background-color: #0d0e12;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -162,15 +79,10 @@
     letter-spacing: 0.1px;
   }
 
-  /* ======================================================
-     TOP BAR (Elegant Glassmorphism Container)
-  ====================================================== */
-
+  /* --------------------------------------------------------
+     TOP BAR (fix wrapping + make chips scroll horizontally)
+  -------------------------------------------------------- */
   .topbar-wrap {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding: 10px 12px;
     background: rgba(13, 14, 18, 0.75);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
@@ -178,12 +90,60 @@
     position: sticky;
     top: 0;
     z-index: 1000;
+
+    padding: 10px 12px;
+  }
+
+  /* Bootstrap row tweaks */
+  .topbar-wrap .topbar-row {
+    width: 100% !important;
+    margin: 0 !important;
+
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    gap: 8px !important;
+  }
+
+  /* Make columns behave like flex items (avoid BS width constraints) */
+  .topbar-wrap .topbar-row > .col,
+  .topbar-wrap .topbar-row > [class*="col-"] {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    max-width: none !important;
+  }
+
+  /* Row 1: logo left; buttons right */
+  .top-brand-col {
+    order: 1 !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+  }
+
+  .top-theme-col {
+    order: 2 !important;
+    flex: 0 0 auto !important;
+  }
+
+  .top-logoff-col {
+    order: 3 !important;
+    flex: 0 0 auto !important;
+  }
+
+  /* Row 2: chips full width */
+  .top-stats-col {
+    order: 4 !important;
+    flex: 0 0 100% !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    margin-top: 6px !important;
   }
 
   .tt-brand {
-    flex: 1 1 100%;
     display: flex;
     align-items: center;
+    min-width: 0;
   }
 
   .tt-logo {
@@ -191,16 +151,24 @@
     filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25));
   }
 
+  /* Chips: single line scroll */
   .top-stats-wrap {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    width: 100%;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 8px;
+    width: 100% !important;
+    justify-content: flex-start !important;
   }
+  .top-stats-wrap::-webkit-scrollbar { display: none; }
 
-  /* Premium chips with inner glows */
   .stat-chip,
   .stat-badge {
+    flex: 0 0 auto !important;
+    white-space: nowrap !important;
+
     font-size: 10.5px;
     font-weight: 600;
     letter-spacing: 0.2px;
@@ -215,7 +183,6 @@
     transition: var(--transition-premium);
   }
 
-  /* Elegant Log-out button styling */
   .tt-logout-btn {
     font-size: 11px !important;
     font-weight: 600 !important;
@@ -226,84 +193,46 @@
     color: #ff453a !important;
     transition: var(--transition-premium);
   }
-
   .tt-logout-btn:active {
     transform: scale(0.95);
-    background: rgba(255, 59, 48, 0.2) !important;
+    background: rgba(255, 59, 48, 0.20) !important;
   }
 
-  /* ======================================================
-     SECTOR SORT (Modern segment controllers)
-  ====================================================== */
-
-  .sectors-sort {
-    display: flex !important;
-    flex-direction: column !important;
-    gap: 6px;
-    margin-top: 12px;
+  .theme-toggle {
+    width: 36px !important;
+    height: 36px !important;
+    border-radius: 18px !important;
+    padding: 0 !important;
   }
 
-  .sectors-sort .form-check {
-    margin: 0;
-    width: 100%;
+  /* --------------------------------------------------------
+     Sector sort dropdown (mobile)
+  -------------------------------------------------------- */
+  .sectors-sort-dd { width: 100%; }
+
+  .sectors-sort-dd.form-select {
+    background: rgba(255,255,255,0.035) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    color: rgba(255,255,255,0.9) !important;
+    border-radius: 14px !important;
+    padding: 10px 12px !important;
+    font-weight: 700 !important;
+    font-size: 12px !important;
   }
 
-  .sectors-sort .form-check-input {
-    display: none;
-  }
-
-  .sectors-sort .form-check-label {
-    display: block;
-    width: 100%;
-    padding: 11px 16px;
-    border-radius: 12px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-subtle);
-    font-weight: 600;
-    font-size: 13px;
-    letter-spacing: 0.1px;
-    color: rgba(255, 255, 255, 0.75);
-    text-align: center;
-    transition: var(--transition-premium);
-    position: relative;
-    overflow: hidden;
-  }
-
-  /* Soft active tap feedback */
-  .sectors-sort .form-check-label:active {
-    transform: scale(0.98);
-    background: var(--bg-card-hover);
-  }
-
-  /* Premium Selected State */
-  .sectors-sort .form-check-input:checked + .form-check-label {
-    background: rgba(0, 122, 255, 0.12);
-    border-color: var(--brand-primary);
-    color: #ffffff;
-    font-weight: 700;
-    box-shadow: 0 4px 12px var(--brand-primary-glow),
-                inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  }
-
-  /* ======================================================
-     SECTOR HISTOGRAM (Fluid, momentum horizontal scrolls)
-  ====================================================== */
-
+  /* --------------------------------------------------------
+     Sector histogram (mobile)
+  -------------------------------------------------------- */
   .sector-hist-plot {
     overflow-x: auto;
     padding-bottom: 12px;
-    -webkit-overflow-scrolling: touch; /* Momentum iOS scroll */
-    scrollbar-width: none; /* Hide scrollbar for clean look Firefox */
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 10px !important;
   }
+  .sector-hist-plot::-webkit-scrollbar { display: none; }
 
-  .sector-hist-plot::-webkit-scrollbar {
-    display: none; /* Hide scrollbar for Chrome/Safari */
-  }
-
-  .sector-hist-col {
-    min-width: 64px;
-    transition: var(--transition-premium);
-  }
+  .sector-hist-col { min-width: 64px !important; transition: var(--transition-premium); }
 
   .sector-hist-name {
     font-size: 9.5px;
@@ -319,10 +248,15 @@
     font-weight: 500;
   }
 
-  /* ======================================================
-     GRID SYSTEM (AG Grid UI Redesign)
-  ====================================================== */
+  /* Save space on small screens */
+  .sector-hist-axis,
+  .sector-hist-zero-line {
+    display: none !important;
+  }
 
+  /* --------------------------------------------------------
+     AG Grid (mobile premium look)
+  -------------------------------------------------------- */
   .ag-theme-alpine-dark {
     font-size: 12px;
     border-radius: 12px;
@@ -332,7 +266,6 @@
     backdrop-filter: var(--glass-blur);
   }
 
-  /* Table Headers Styling */
   .ag-theme-alpine-dark .ag-header {
     height: 38px !important;
     background-color: rgba(255, 255, 255, 0.02) !important;
@@ -347,7 +280,6 @@
     letter-spacing: 0.5px;
   }
 
-  /* Table Rows Styling */
   .ag-theme-alpine-dark .ag-row {
     height: 38px !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
@@ -368,39 +300,203 @@
     color: rgba(255, 255, 255, 0.9);
   }
 
-  /* Segmented Control Tabs (Top 15 Pages) */
-  .top15-tabs {
-    background: rgba(255, 255, 255, 0.03);
-    padding: 3px;
-    border-radius: 12px;
-    border: 1px solid var(--border-subtle);
-    display: flex;
+  /* --------------------------------------------------------
+     Top 15 mobile grids: reduce fonts & remove separators
+  -------------------------------------------------------- */
+  #top15-gainers-grid-m .ag-cell,
+  #top15-losers-grid-m  .ag-cell{
+    font-size: 11px !important;
+    line-height: 1.10 !important;
+    border-right: none !important;
   }
 
-  .top15-tabs .nav-link {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-muted);
-    padding: 8px 12px;
-    border: none !important;
-    border-radius: 9px;
+  #top15-gainers-grid-m .ag-header-cell,
+  #top15-losers-grid-m  .ag-header-cell{
+    border-right: none !important;
+  }
+
+  #top15-gainers-grid-m .ag-header-cell::after,
+  #top15-losers-grid-m  .ag-header-cell::after{
+    display: none !important;
+  }
+
+  #top15-gainers-grid-m .ag-header-cell-text,
+  #top15-losers-grid-m  .ag-header-cell-text{
+    font-size: 9px !important;
+    letter-spacing: 0.4px !important;
+  }
+
+  #top15-gainers-grid-m .tt-pill,
+  #top15-losers-grid-m  .tt-pill,
+  #top15-gainers-grid-m .pill,
+  #top15-losers-grid-m  .pill{
+    font-size: 10.5px !important;
+    padding: 3px 8px !important;
+  }
+
+  /* Keep STOCK a touch bigger */
+  #top15-gainers-grid-m .ag-cell[col-id="Symbol"],
+  #top15-losers-grid-m  .ag-cell[col-id="Symbol"]{
+    font-size: 12px !important;
+  }
+
+  /* Tighten numeric columns (optional) */
+  #top15-gainers-grid-m .ag-cell[col-id="%Change"],
+  #top15-losers-grid-m  .ag-cell[col-id="%Change"],
+  #top15-gainers-grid-m .ag-cell[col-id="RFactor"],
+  #top15-losers-grid-m  .ag-cell[col-id="RFactor"],
+  #top15-gainers-grid-m .ag-cell[col-id="Vol"],
+  #top15-losers-grid-m  .ag-cell[col-id="Vol"],
+  #top15-gainers-grid-m .ag-cell[col-id="%Change"] *,
+  #top15-losers-grid-m  .ag-cell[col-id="%Change"] *,
+  #top15-gainers-grid-m .ag-cell[col-id="RFactor"] *,
+  #top15-losers-grid-m  .ag-cell[col-id="RFactor"] *,
+  #top15-gainers-grid-m .ag-cell[col-id="Vol"] *,
+  #top15-losers-grid-m  .ag-cell[col-id="Vol"] *{
+    font-size: 12px !important;
+    line-height: 1.05 !important;
+  }
+
+  #top15-gainers-grid-m .ag-cell[col-id="%Change"] .tt-pill,
+  #top15-losers-grid-m  .ag-cell[col-id="%Change"] .tt-pill,
+  #top15-gainers-grid-m .ag-cell[col-id="RFactor"] .tt-pill,
+  #top15-losers-grid-m  .ag-cell[col-id="RFactor"] .tt-pill,
+  #top15-gainers-grid-m .ag-cell[col-id="Vol"] .tt-pill,
+  #top15-losers-grid-m  .ag-cell[col-id="Vol"] .tt-pill{
+    padding: 2px 7px !important;
+  }
+
+  /* If you previously used a left separator trick for RFactor, keep spacing only */
+  #top15-gainers-grid-m .ag-header-cell[col-id="RFactor"],
+  #top15-losers-grid-m  .ag-header-cell[col-id="RFactor"],
+  #top15-gainers-grid-m .ag-cell[col-id="RFactor"],
+  #top15-losers-grid-m  .ag-cell[col-id="RFactor"]{
+    border-left: none !important;
+    padding-left: 18px !important;
+  }
+
+  /* --------------------------------------------------------
+     Mobile Tabs (Top15): premium segmented look + dot colors
+  -------------------------------------------------------- */
+  .top15-tabs{
+    background: rgba(255,255,255,0.025) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    border-radius: 16px !important;
+    padding: 6px !important;
+    box-shadow:
+      0 14px 34px rgba(0,0,0,0.55),
+      inset 0 1px 0 rgba(255,255,255,0.06);
+    backdrop-filter: blur(10px);
+  }
+
+  .top15-tabs .nav-link{
+    position: relative;
+    border-radius: 13px !important;
+    padding: 10px 12px !important;
+    font-size: 12px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.5px !important;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.65) !important;
+    background: rgba(255,255,255,0.02) !important;
+    border: 1px solid rgba(255,255,255,0.06) !important;
+    transition: 0.18s ease;
     flex: 1;
     text-align: center;
-    transition: var(--transition-premium);
   }
 
-  .top15-tabs .nav-link.active {
-    background: rgba(255, 255, 255, 0.08) !important;
-    color: var(--text-bright) !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  .top15-tabs .nav-link::before{
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 99px;
+    background: rgba(255,255,255,0.25);
+    display: inline-block;
+    margin-right: 8px;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.10);
+    transform: translateY(-1px);
   }
 
-  /* ======================================================
-     HEATMAP & CHARTS
-  ====================================================== */
+  .top15-tabs .nav-item:nth-child(1) .nav-link::before{
+    background: rgba(46, 213, 115, 0.90) !important; /* gainers */
+  }
+  .top15-tabs .nav-item:nth-child(2) .nav-link::before{
+    background: rgba(255, 71, 87, 0.90) !important;  /* losers */
+  }
 
+  .top15-tabs .nav-link.active{
+    color: rgba(255,255,255,0.96) !important;
+    background: linear-gradient(180deg,
+      rgba(255,255,255,0.08),
+      rgba(255,255,255,0.03)
+    ) !important;
+    border-color: rgba(0,122,255,0.35) !important;
+    box-shadow:
+      0 12px 28px rgba(0,0,0,0.55),
+      0 0 20px rgba(0,122,255,0.20),
+      inset 0 1px 0 rgba(255,255,255,0.10);
+    transform: translateY(-1px);
+  }
+
+  /* --------------------------------------------------------
+     Sector MODAL (mobile): header close button visible + grid sizing
+  -------------------------------------------------------- */
+  #sector-modal .modal-header{
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    flex-wrap: nowrap !important;
+    gap: 10px !important;
+  }
+
+  #sector-modal .tt-modal-title{
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  #sector-modal .tt-modal-close-btn{
+    flex: 0 0 auto !important;
+    white-space: nowrap !important;
+  }
+
+  /* Sector modal grid: compact numbers */
+  #sector-modal-grid-m .ag-cell,
+  #sector-modal-grid-m .ag-cell-value{
+    font-size: 12px !important;
+    line-height: 1.05 !important;
+  }
+
+  #sector-modal-grid-m .ag-header-cell-text{
+    font-size: 9px !important;
+    letter-spacing: 0.35px !important;
+  }
+
+  #sector-modal-grid-m .ag-cell[col-id="Symbol"],
+  #sector-modal-grid-m .ag-cell[col-id="Symbol"] *{
+    font-size: 12px !important;
+    font-weight: 700 !important;
+  }
+
+  #sector-modal-grid-m .ag-cell[col-id="DirR"],
+  #sector-modal-grid-m .ag-cell[col-id="Price"],
+  #sector-modal-grid-m .ag-cell[col-id="%Change"],
+  #sector-modal-grid-m .ag-cell[col-id="RVOLm"],
+  #sector-modal-grid-m .ag-cell[col-id="DirR"] *,
+  #sector-modal-grid-m .ag-cell[col-id="Price"] *,
+  #sector-modal-grid-m .ag-cell[col-id="%Change"] *,
+  #sector-modal-grid-m .ag-cell[col-id="RVOLm"] *{
+    font-size: 12px !important;
+    line-height: 1.05 !important;
+  }
+
+  /* --------------------------------------------------------
+     Heatmap / plotly
+  -------------------------------------------------------- */
   #market-heatmap {
-    height: 55vh !important; /* Slightly optimized height for viewports */
+    height: 55vh !important;
     border-radius: 14px;
     overflow: hidden;
     border: 1px solid var(--border-subtle);
@@ -411,19 +507,17 @@
     opacity: 0.6;
   }
 
-  /* ======================================================
-     DIALS – HIDDEN CLEANLY ON MOBILE
-  ====================================================== */
-
+  /* --------------------------------------------------------
+     Dials: hidden on mobile
+  -------------------------------------------------------- */
   .dials-row,
   .dial-card {
     display: none !important;
   }
 
-  /* ======================================================
-     TYPOGRAPHY POLISH & HEADINGS
-  ====================================================== */
-
+  /* --------------------------------------------------------
+     Typography polish
+  -------------------------------------------------------- */
   .page-wrap h6 {
     font-weight: 700 !important;
     font-size: 14px;
@@ -440,10 +534,9 @@
     text-transform: capitalize;
   }
 
-  /* ======================================================
-     VOLM PAGE
-  ====================================================== */
-
+  /* --------------------------------------------------------
+     Volm page
+  -------------------------------------------------------- */
   #volm-buy-grid,
   #volm-sell-grid {
     height: 55vh !important;
@@ -451,23 +544,19 @@
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   }
 
-  /* ======================================================
-     OPEN INTEREST IFRAME (Seamless embed)
-  ====================================================== */
-
+  /* --------------------------------------------------------
+     Open Interest iframe
+ -------------------------------------------------------- */
   iframe {
     height: calc(100vh - 120px) !important;
     border-radius: 14px;
     border: 1px solid var(--border-subtle);
   }
 
-  /* ======================================================
-     MODAL SYSTEM & iOS BOTTOM SHEETS
-  ====================================================== */
-
-  .modal {
-    z-index: 2000 !important;
-  }
+  /* --------------------------------------------------------
+     Modal system: bottom-sheet style
+ -------------------------------------------------------- */
+  .modal { z-index: 2000 !important; }
 
   .modal-backdrop {
     z-index: 1990 !important;
@@ -475,7 +564,6 @@
     background-color: rgba(0, 0, 0, 0.6) !important;
   }
 
-  /* Transforming the modal into an elegant premium bottom sheet */
   .modal-dialog {
     margin: 0 !important;
     max-width: 100% !important;
@@ -492,10 +580,9 @@
     border-radius: 20px 20px 0 0 !important;
     box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.5) !important;
     border-top: 1px solid rgba(255, 255, 255, 0.12) !important;
-    padding-bottom: env(safe-area-inset-bottom); /* iOS dynamic bottom bezel support */
+    padding-bottom: env(safe-area-inset-bottom);
   }
 
-  /* Quick-grab indicator bar on top of bottom-sheets */
   .modal-content::before {
     content: '';
     display: block;
@@ -505,93 +592,12 @@
     border-radius: 2px;
     margin: 8px auto 0 auto;
   }
-
-  /* ======================================================
-   SECTOR HISTOGRAM — MOBILE COMPACT
-  ====================================================== */
-
-  .sector-hist-plot {
-    gap: 10px !important;
-    padding-bottom: 12px !important;
-  }
-
-  /* Make columns comfortable to tap/read */
-  .sector-hist-col {
-    min-width: 64px !important;
-  }
-
-  /* Optional: hide axis + zero-line on small screens to save space */
-  .sector-hist-axis,
-  .sector-hist-zero-line {
-    display: none !important;
-  }
-
-  /* ======================================================
-     Top15 mobile: remove vertical separator lines between columns
-     (keep spacing using padding only)
-  ====================================================== */
-  #top15-gainers-grid-m .ag-header-cell,
-  #top15-losers-grid-m  .ag-header-cell,
-  #top15-gainers-grid-m .ag-cell,
-  #top15-losers-grid-m  .ag-cell{
-    border-right: none !important;
-  }
-
-  /* AG Grid sometimes draws header separators using ::after */
-  #top15-gainers-grid-m .ag-header-cell::after,
-  #top15-losers-grid-m  .ag-header-cell::after{
-    display: none !important;
-  }
-
-  /* If you previously added a separator for the MOMENTUM column, kill it */
-  #top15-gainers-grid-m .ag-header-cell[col-id="RFactor"],
-  #top15-losers-grid-m  .ag-header-cell[col-id="RFactor"],
-  #top15-gainers-grid-m .ag-cell[col-id="RFactor"],
-  #top15-losers-grid-m  .ag-cell[col-id="RFactor"]{
-    border-left: none !important;     /* removes the line */
-    padding-left: 18px !important;    /* keeps the gap/breathing room */
-  }
-
-  /* ======================================================
-     NEW: Top15 Mobile — Reduce value sizes (Stock/%CHG/MOM/VOL)
-  ====================================================== */
-
-  /* Reduce base cell text for Top15 grids only */
-  #top15-gainers-grid-m .ag-cell,
-  #top15-losers-grid-m  .ag-cell{
-    font-size: 11px !important;   /* main reduction */
-    line-height: 1.1 !important;
-  }
-
-  /* Reduce header text slightly */
-  #top15-gainers-grid-m .ag-header-cell-text,
-  #top15-losers-grid-m  .ag-header-cell-text{
-    font-size: 9px !important;
-    letter-spacing: 0.4px !important;
-  }
-
-  /* If your renderers use pill-like spans, shrink them too (important) */
-  #top15-gainers-grid-m .tt-pill,
-  #top15-losers-grid-m  .tt-pill,
-  #top15-gainers-grid-m .pill,
-  #top15-losers-grid-m  .pill{
-    font-size: 10.5px !important;
-    padding: 3px 8px !important;
-  }
-
-  /* Optional: keep STOCK a bit larger than numbers */
-  #top15-gainers-grid-m .ag-cell[col-id="Symbol"],
-  #top15-losers-grid-m  .ag-cell[col-id="Symbol"]{
-    font-size: 12px !important;
-  }
-
 }
 
-/* ======================================================
-   PREMIUM: Top 15 Titles + Tabs
-====================================================== */
 
-/* Desktop titles */
+/* ======================================================
+   Desktop titles (keep outside mobile media)
+====================================================== */
 .tt-top15-title{
   font-size: 14px;
   font-weight: 900;
@@ -624,76 +630,4 @@
     0 10px 24px rgba(0,0,0,0.45),
     0 0 18px rgba(255, 71, 87, 0.12),
     inset 0 1px 0 rgba(255,255,255,0.08);
-}
-
-/* Mobile tabs (Top15) */
-@media screen and (max-width: 768px){
-
-  .top15-tabs{
-    background: rgba(255,255,255,0.025) !important;
-    border: 1px solid rgba(255,255,255,0.08) !important;
-    border-radius: 16px !important;
-    padding: 6px !important;
-    box-shadow:
-      0 14px 34px rgba(0,0,0,0.55),
-      inset 0 1px 0 rgba(255,255,255,0.06);
-    backdrop-filter: blur(10px);
-  }
-
-  .top15-tabs .nav-link{
-    position: relative;
-    border-radius: 13px !important;
-    padding: 10px 12px !important;
-    font-size: 12px !important;
-    font-weight: 800 !important;
-    letter-spacing: 0.5px !important;
-    text-transform: uppercase;
-    color: rgba(255,255,255,0.65) !important;
-    background: rgba(255,255,255,0.02) !important;
-    border: 1px solid rgba(255,255,255,0.06) !important;
-    transition: 0.18s ease;
-  }
-
-  /* Small indicator dot */
-  .top15-tabs .nav-link::before{
-    content: "";
-    width: 8px;
-    height: 8px;
-    border-radius: 99px;
-    background: rgba(255,255,255,0.25);
-    display: inline-block;
-    margin-right: 8px;
-    box-shadow: 0 0 0 1px rgba(255,255,255,0.10);
-    transform: translateY(-1px);
-  }
-
-  .top15-tabs .nav-item:nth-child(1) .nav-link::before{
-    background: rgba(46, 213, 115, 0.90) !important;  /* green = gainers */
-  }
-  .top15-tabs .nav-item:nth-child(2) .nav-link::before{
-    background: rgba(255, 71, 87, 0.90) !important;   /* red = losers */
-
-  /* Active tab: premium glow */
-  .top15-tabs .nav-link.active{
-    color: rgba(255,255,255,0.96) !important;
-    background: linear-gradient(180deg,
-      rgba(255,255,255,0.08),
-      rgba(255,255,255,0.03)
-    ) !important;
-    border-color: rgba(0,122,255,0.35) !important;
-    box-shadow:
-      0 12px 28px rgba(0,0,0,0.55),
-      0 0 20px rgba(0,122,255,0.20),
-      inset 0 1px 0 rgba(255,255,255,0.10);
-    transform: translateY(-1px);
-  }
-
-  
-
-  
-
-  /* Optional: different dot color per tab (1st = gainers, 2nd = losers) */
-  .top15-tabs .nav-link:nth-child(1)::before{ background: rgba(46,213,115,0.85); }
-  .top15-tabs .nav-link:nth-child(2)::before{ background: rgba(255,71,87,0.85); }
-  }
 }

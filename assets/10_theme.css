@@ -1688,3 +1688,47 @@ html .ag-theme-alpine-dark .ag-header{
     0 0 0 4px color-mix(in srgb, var(--bad) 18%, transparent),
     0 0 10px color-mix(in srgb, var(--bad) 35%, transparent) !important;
 }
+
+/* ===== FIX: green (pos) bars going out of the track ===== */
+
+.sector-hist-track{
+  position: relative;
+  overflow: hidden;      /* clips sheen + any overflow */
+  --zero: 50%;           /* fallback */
+}
+
+/* Positive bars grow UP from the dynamic zero line */
+.sector-hist-bar.pos{
+  bottom: calc(100% - var(--zero, 50%)) !important; /* was 50% */
+  top: auto !important;
+  max-height: var(--zero, 50%);                     /* safety cap */
+}
+
+/* Negative bars grow DOWN from the dynamic zero line */
+.sector-hist-bar.neg{
+  top: var(--zero, 50%) !important;                 /* was 50% */
+  bottom: auto !important;
+  max-height: calc(100% - var(--zero, 50%));        /* safety cap */
+}
+
+#market-heatmap,
+#market-heatmap .js-plotly-plot,
+#market-heatmap .plot-container,
+#market-heatmap .svg-container{
+  background: var(--heatmap-bg) !important;
+  background-color: var(--heatmap-bg) !important;
+}
+
+#market-heatmap .bglayer rect.bg{
+  fill: var(--heatmap-bg) !important;
+}
+
+/* Topbar: keep chips on one line (scroll if needed) */
+.top-stats-wrap{
+  flex-wrap: nowrap !important;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Firefox */
+}
+.top-stats-wrap::-webkit-scrollbar{ display:none; } /* Chrome/Safari */
+.top-stats-wrap > *{ flex: 0 0 auto; }

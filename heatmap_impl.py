@@ -29,7 +29,7 @@ HEATMAP_SECTOR_POWER = float(os.getenv("HEATMAP_SECTOR_POWER", "2.5"))
 HEATMAP_STOCK_SIZE_METRIC = os.getenv("HEATMAP_STOCK_SIZE_METRIC", "abs_pct").strip()
 HEATMAP_MAX_STOCK_LABEL_CHARS = int(os.getenv("HEATMAP_MAX_STOCK_LABEL_CHARS", "9"))
 
-_BG = "#000000"
+_BG = "rgba(0,0,0,0)"   # transparent -> CSS controls visible background
 _LINE = "#000000"
 
 
@@ -255,7 +255,7 @@ def build_market_heatmap_figure(rows: List[Dict[str, Any]]) -> go.Figure:
         ids.append(sec_id)
         parents.append("")
         values.append(w_sec)
-        colors.append("#000000")
+        colors.append(_BG)  # transparent
         customdata.append([
             float(leaf_df["turnover"].sum()),
             float(leaf_df["dirr"].mean()),

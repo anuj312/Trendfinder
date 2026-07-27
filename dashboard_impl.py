@@ -2196,49 +2196,54 @@ dash_app.layout = dbc.Container(
 
         html.Div(
     dbc.Row(
-        [
-            dbc.Col(
-                html.Div(
-                    [html.Img(src=dash.get_asset_url("turbotrades.svg"), className="tt-logo")],
-                    className="tt-brand",
-                ),
-                width=True,
+    [
+        # Logo should not take flex space
+        dbc.Col(
+            html.Div(
+                [html.Img(src=dash.get_asset_url("turbotrades.svg"), className="tt-logo")],
+                className="tt-brand",
             ),
+            width="auto",
+        ),
 
-            dbc.Col(html.Div(id="top-stats"), width="auto"),
+        # Top stats should take remaining space and be allowed to shrink
+        dbc.Col(
+            html.Div(id="top-stats"),
+            width=True,
+            style={"minWidth": 0},   # important
+        ),
 
-            # ✅ ADD THIS COLUMN (Theme toggle) RIGHT HERE
-            dbc.Col(
-                html.Button(
-                    [
-                        html.I(className="bi bi-sun icon-sun", **{"aria-hidden": "true"}),
-                        html.I(className="bi bi-moon-stars icon-moon", **{"aria-hidden": "true"}),
-                    ],
-                    id="themeToggle",
-                    className="theme-toggle",
-                    type="button",
-                    title="Toggle theme",
-                    **{"aria-label": "Toggle theme"},
-                ),
-                width="auto",
+        dbc.Col(
+            html.Button(
+                [
+                    html.I(className="bi bi-sun icon-sun", **{"aria-hidden": "true"}),
+                    html.I(className="bi bi-moon-stars icon-moon", **{"aria-hidden": "true"}),
+                ],
+                id="themeToggle",
+                className="theme-toggle",
+                type="button",
+                title="Toggle theme",
+                **{"aria-label": "Toggle theme"},
             ),
+            width="auto",
+        ),
 
-            dbc.Col(
-                dbc.Button(
-                    "LogOff",
-                    href="/auth/logout",
-                    external_link=True,
-                    color="danger",
-                    outline=True,
-                    size="sm",
-                    className="tt-logout-btn",
-                    style={"fontWeight": "700"},
-                ),
-                width="auto",
+        dbc.Col(
+            dbc.Button(
+                "LogOff",
+                href="/auth/logout",
+                external_link=True,
+                color="danger",
+                outline=True,
+                size="sm",
+                className="tt-logout-btn",
+                style={"fontWeight": "700"},
             ),
-        ],
-        className="align-items-center g-2 flex-wrap",
-    ),
+            width="auto",
+        ),
+    ],
+    className="align-items-center g-2 flex-md-nowrap flex-wrap",
+),
     className="topbar-wrap",
 ),
 
@@ -2379,18 +2384,18 @@ def update_top_stats(_):
         pcr_chip = html.Div("PCR: LOADING", className="stat-chip")
 
     chips = [
-        dbc.Badge("Offline" if offline else "Live", color=("danger" if offline else "success"), className="stat-badge"),
-        html.A(
-            "Volm",
-            href=f"{BASE}volm",
-            target="_blank",
-            className="stat-chip",
-            style={"textDecoration": "none", "marginLeft": "8px", "cursor": "pointer"},
-        ),
-        _oi_inference_chip(),
-        sentiment_chip,
-        pcr_chip,
-    ]
+    dbc.Badge("Offline" if offline else "Live", color=("danger" if offline else "success"), className="stat-badge"),
+    html.A(
+        "Volm",
+        href=f"{BASE}volm",
+        target="_blank",
+        className="stat-chip",
+        style={"textDecoration": "none", "marginLeft": "8px", "cursor": "pointer"},
+    ),
+    _oi_inference_chip(),
+    sentiment_chip,
+    # pcr_chip,  # <-- hidden from top nav
+]
 
     if not d_done:
         chips.append(
@@ -2467,7 +2472,7 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd):
             i = max(0, min(len(sorted_list) - 1, i))
             return float(sorted_list[i])
 
-        def fmt(x: float) -> str:
+        def fmt_dec(x: float) -> str:
             x = float(x)
             if abs(x) < 5e-7:
                 x = 0.0
@@ -2479,12 +2484,16 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd):
         # -----------------------------
         pos_abs = sorted([v for v in vals if v > 0])          # positive values
         neg_abs = sorted([abs(v) for v in vals if v < 0])     # absolute of negative values
+        
+        if metric == "DirR":
+         pos_cap = max(pos_abs) if pos_abs else 0.30
+         neg_cap = max(neg_abs) if neg_abs else 0.30
 
         if metric == "DirR":
-            CAP_Q   = 0.82
-            CAP_MUL = 1.25
-            MIN_CAP = 0.30
-            GAMMA   = 0.50   # <1 => boosts small values visually
+           CAP_Q   = 0.99   # was 0.82 (too aggressive)
+           CAP_MUL = 1.00
+           MIN_CAP = 0.05
+           GAMMA   = 0.85   # closer to linear so big differences show
         else:
             CAP_Q   = 0.88
             CAP_MUL = 1.20
@@ -2493,6 +2502,24 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd):
 
         pos_cap = max(pct(pos_abs, CAP_Q) * CAP_MUL, MIN_CAP) if pos_abs else MIN_CAP
         neg_cap = max(pct(neg_abs, CAP_Q) * CAP_MUL, MIN_CAP) if neg_abs else MIN_CAP
+        
+                # -----------------------------
+        # Display DirR as 1x,2x,3x...
+        # (only changes labels, not sorting/heights)
+        # -----------------------------
+        if metric == "DirR":
+            X_MAX = 6.0  # strongest sector will be around ~6x (tweak if you want)
+            cap_abs = max(float(pos_cap), float(neg_cap), 1e-6)
+            x_unit = cap_abs / X_MAX  # 1x equals this DirR value
+
+            def fmt_tick(v: float) -> str:
+                return f"{(float(v) / x_unit):+.0f}x"
+
+            def fmt_tip(v: float) -> str:
+                return f"{(float(v) / x_unit):+.0f}x"
+        else:
+            fmt_tick = fmt_dec
+            fmt_tip  = fmt_dec
 
         # Axis bounds from caps (NOT from true max)
         tick_max = float(pos_cap)
@@ -2518,7 +2545,7 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd):
             top_pct = ((tick_max - float(tv)) / axis_span) * 100.0
             axis_ticks.append(
                 html.Div(
-                    fmt(tv),
+                    fmt_tick(tv),
                     className="sector-axis-tick",
                     style={"top": f"{top_pct:.2f}%"},
                 )
@@ -2549,7 +2576,7 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd):
         for sector, m in items:
             val = float(m.get(metric, 0.0) or 0.0)
             disp = sector.replace("_", " ").upper()
-            val_str = f"{val:+.2f}"
+            val_str = fmt_tip(val)
 
             # Clip separately for + and -
             clipped = (val > pos_cap) or (val < -neg_cap)

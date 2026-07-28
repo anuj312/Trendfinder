@@ -1,12 +1,11 @@
 /* ==========================================================================
    TurboTrades — 10_theme.css (DUAL THEME)
-   ULTRA PREMIUM — ONYX (DARK) + PLATINUM (LIGHT)
+   ULTRA PREMIUM — ONYX (DARK) + PLATINUM WHITE (LIGHT)
    --------------------------------------------------------------------------
-   - Single unified stylesheet (clean, no conflicting duplicates)
+   - Single unified stylesheet (clean, consolidated, zero duplicate conflicts)
    - Theme switch via attribute:
        <html data-theme="dark">  (default)
        <html data-theme="light">
-   - If you don't set data-theme, DARK tokens are used by default.
    - Right-aligned numeric values (tables + grids) across both themes.
    --------------------------------------------------------------------------
    Drop-in replacement for: assets/theme.css
@@ -18,41 +17,41 @@
    - Light overrides: html[data-theme="light"]
 ========================================================================== */
 :root {
-  /* --- Core palette (DARK default) --- */
-  --bg0: #020203;
-  --bg1: #07080c;
+  /* --- Core Palette (DARK Default) --- */
+  --bg0: #030407;
+  --bg1: #080a10;
 
-  --panel0: rgba(255, 255, 255, 0.040);
-  --panel1: rgba(255, 255, 255, 0.012);
+  --panel0: rgba(255, 255, 255, 0.045);
+  --panel1: rgba(255, 255, 255, 0.015);
 
-  --card-bg: radial-gradient(900px 260px at 18% 0%, rgba(255,255,255,0.055), transparent 62%),
-             radial-gradient(900px 260px at 88% 0%, rgba(255,255,255,0.040), transparent 62%),
+  --card-bg: radial-gradient(1000px 300px at 20% 0%, rgba(255,255,255,0.06), transparent 70%),
+             radial-gradient(1000px 300px at 80% 0%, rgba(255,255,255,0.04), transparent 70%),
              linear-gradient(180deg, var(--panel0), var(--panel1));
-  --card-hd-bg: linear-gradient(180deg, rgba(0,0,0,0.26), rgba(0,0,0,0.06));
+  --card-hd-bg: linear-gradient(180deg, rgba(0, 0, 0, 0.35) 0%, rgba(0, 0, 0, 0.10) 100%);
 
-  --border:  rgba(255, 255, 255, 0.11);
+  --border:  rgba(255, 255, 255, 0.12);
   --border2: rgba(255, 255, 255, 0.06);
 
-  --text:  rgba(255, 255, 255, 0.95);
-  --muted: rgba(255, 255, 255, 0.52);
+  --text:  rgba(255, 255, 255, 0.96);
+  --muted: rgba(255, 255, 255, 0.54);
 
   --good: #00e676;
   --bad:  #ff3d57;
   --warn: #ffcc66;
 
-  --good-glow: rgba(0, 230, 118, 0.30);
-  --bad-glow:  rgba(255, 61, 87, 0.30);
+  --good-glow: rgba(0, 230, 118, 0.35);
+  --bad-glow:  rgba(255, 61, 87, 0.35);
 
-  --shadow:  0 30px 90px rgba(0,0,0,0.90);
-  --shadow2: 0 16px 40px rgba(0,0,0,0.70);
+  --shadow:  0 30px 90px rgba(0,0,0,0.92);
+  --shadow2: 0 16px 40px rgba(0,0,0,0.72);
 
   --radius-lg: 24px;
   --radius-md: 14px;
 
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-          "Liberation Mono","Courier New", monospace;
+          "Liberation Mono", "Courier New", monospace;
 
-  /* Brand metal */
+  /* Brand Metal & Gradients */
   --silver-glow: linear-gradient(135deg, #ffffff 0%, #a5afcd 100%);
   --gold-text: linear-gradient(110deg,
     #7a5b12 0%,
@@ -66,37 +65,34 @@
     #6a4c0c 100%
   );
 
-  /* Body canvas */
+  /* Body Canvas */
   --body-bg:
-    radial-gradient(1000px 600px at 10% 5%, rgba(255,255,255,0.015), transparent 75%),
-    radial-gradient(1200px 700px at 90% 12%, rgba(255,255,255,0.012), transparent 70%),
-    radial-gradient(1500px 800px at 50% 110%, rgba(255,255,255,0.012), transparent 60%),
+    radial-gradient(1200px 700px at 15% -10%, rgba(59, 130, 246, 0.05), transparent 80%),
+    radial-gradient(1400px 800px at 85% -10%, rgba(147, 51, 234, 0.04), transparent 75%),
     linear-gradient(180deg, var(--bg0), var(--bg1));
-  --grid-overlay-opacity: 0.08;
-  --grid-overlay-line: rgba(255,255,255,0.03);
+  --grid-overlay-opacity: 0.07;
+  --grid-overlay-line: rgba(255,255,255,0.035);
 
   /* Topbar */
-  --topbar-bg: linear-gradient(180deg, rgba(2,2,3,0.96) 0%, rgba(4,5,8,0.85) 100%);
-  --topbar-border: rgba(255, 255, 255, 0.06);
-  --topbar-shadow:
-    0 15px 40px rgba(0,0,0,0.8),
-    inset 0 -1px 0 rgba(255,255,255,0.02);
+  --topbar-bg: linear-gradient(180deg, rgba(3, 4, 7, 0.94) 0%, rgba(8, 10, 16, 0.85) 100%);
+  --topbar-border: rgba(255, 255, 255, 0.08);
+  --topbar-shadow: 0 20px 50px rgba(0,0,0,0.85), inset 0 -1px 0 rgba(255,255,255,0.03);
   --topbar-specular: linear-gradient(90deg,
-    rgba(255,255,255,0.00) 0%,
-    rgba(255,255,255,0.18) 20%,
-    rgba(255,255,255,0.05) 50%,
-    rgba(255,255,255,0.18) 80%,
-    rgba(255,255,255,0.00) 100%
+    rgba(255,255,255,0) 0%,
+    rgba(255,255,255,0.22) 20%,
+    rgba(255,255,255,0.06) 50%,
+    rgba(255,255,255,0.22) 80%,
+    rgba(255,255,255,0) 100%
   );
 
-  /* Tabs */
-  --tab-bg: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.0) 100%);
-  --tab-bg-active: linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%);
-  --tab-border: rgba(255, 255, 255, 0.08);
-  --tab-border-hover: rgba(255,255,255,0.16);
-  --tab-border-active: rgba(255, 255, 255, 0.20);
+  /* Navigation Tabs */
+  --tab-bg: linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%);
+  --tab-bg-active: linear-gradient(180deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.03) 100%);
+  --tab-border: rgba(255, 255, 255, 0.10);
+  --tab-border-hover: rgba(255, 255, 255, 0.20);
+  --tab-border-active: rgba(255, 255, 255, 0.28);
 
-  /* Dials (shared geometry; face differs by theme) */
+  /* Dials */
   --dial-sell-strong: #b3123c;
   --dial-sell:        #ff2d55;
   --dial-neutral-1:   #2563eb;
@@ -109,9 +105,8 @@
   --dial-brightness:  1.05;
 
   --dial-title-fill: var(--silver-glow);
-
   --dial-face-bg:
-    radial-gradient(closest-side at 50% 15%, rgba(255,255,255,0.05), transparent 60%),
+    radial-gradient(closest-side at 50% 15%, rgba(255,255,255,0.06), transparent 60%),
     repeating-radial-gradient(circle, #0e1014 0px, #0b0c10 1px, #0e1014 2px),
     conic-gradient(from 180deg at 50% 50%,
       rgba(255,255,255,0.02) 0deg,
@@ -129,132 +124,134 @@
   --hist-wrap-bg: linear-gradient(180deg, rgba(0,0,0,0.65), rgba(0,0,0,0.35));
   --hist-pos-bg: linear-gradient(180deg, rgba(0, 255, 170, 0.98), rgba(0, 210, 120, 0.55) 55%, rgba(0, 160, 92, 0.22));
   --hist-neg-bg: linear-gradient(180deg, rgba(255, 80, 110, 0.22), rgba(255, 35, 70, 0.70) 55%, rgba(255, 0, 35, 0.98));
-  --hist-pos-shadow: 0 18px 44px rgba(0,255,170,0.18), 0 8px 22px rgba(0,0,0,0.55);
-  --hist-neg-shadow: 0 18px 44px rgba(255,0,35,0.16), 0 8px 22px rgba(0,0,0,0.55);
-  --hist-name: rgba(255,255,255,0.62);
-  --hist-tooltip-bg: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(0,0,0,0.35));
+  --hist-pos-shadow: 0 18px 44px rgba(0,255,170,0.22), 0 8px 22px rgba(0,0,0,0.55);
+  --hist-neg-shadow: 0 18px 44px rgba(255,0,35,0.20), 0 8px 22px rgba(0,0,0,0.55);
+  --hist-name: rgba(255,255,255,0.65);
+  --hist-tooltip-bg: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(10,12,18,0.92));
 
-  /* Modal */
-  --modal-backdrop: rgba(0,0,0,.76);
-  --modal-bg: radial-gradient(900px 520px at 12% 0%,rgba(46,213,115,.12),transparent 55%),
-              radial-gradient(900px 520px at 88% 0%,rgba(88,130,255,.16),transparent 55%),
-              rgba(10,12,16,.94);
+  /* Modal & Misc */
+  --modal-backdrop: rgba(0,0,0,0.78);
+  --modal-bg: radial-gradient(900px 520px at 12% 0%, rgba(46,213,115,0.12), transparent 55%),
+              radial-gradient(900px 520px at 88% 0%, rgba(88,130,255,0.16), transparent 55%),
+              rgba(10,12,16,0.96);
 
-  /* Plotly heatmap */
-  --heatmap-bg: #000;
+  --heatmap-bg: #030407;
 
   /* Scrollbars */
-  --scroll-track: rgba(255,255,255,0.03);
+  --scroll-track: rgba(255,255,255,0.02);
   --scroll-thumb: rgba(255,255,255,0.18);
-  --scroll-thumb-hover: rgba(255,255,255,0.28);
+  --scroll-thumb-hover: rgba(255,255,255,0.32);
 }
 
-/* --- LIGHT OVERRIDES (PLATINUM) --- */
+/* ==========================================================================
+   ULTRA PREMIUM LIGHT MODE (PLATINUM WHITE)
+========================================================================== */
 html[data-theme="light"] {
   --bg0: #ffffff;
-  --bg1: #f4f6fa;
+  --bg1: #f8fafc;
 
-  --panel0: rgba(15, 23, 42, 0.040);
-  --panel1: rgba(15, 23, 42, 0.020);
+  --panel0: rgba(255, 255, 255, 0.95);
+  --panel1: rgba(248, 250, 252, 0.85);
 
-  --card-bg: radial-gradient(1200px 700px at 10% 0%, rgba(0,0,0,0.025), transparent 72%),
-             radial-gradient(1000px 650px at 90% 8%, rgba(0,0,0,0.015), transparent 75%),
-             linear-gradient(180deg, #ffffff, #f8fafc);
-  --card-hd-bg: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  --card-bg: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  --card-hd-bg: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
 
-  --border:  rgba(15, 23, 42, 0.12);
-  --border2: rgba(15, 23, 42, 0.08);
+  --border:  rgba(15, 23, 42, 0.10);
+  --border2: rgba(15, 23, 42, 0.05);
 
   --text:  #0f172a;
   --muted: #64748b;
 
-  --good: #00a854;
+  --good: #059669;
   --bad:  #e11d48;
   --warn: #d97706;
 
-  --good-glow: rgba(0, 168, 84, 0.18);
-  --bad-glow:  rgba(225, 29, 72, 0.18);
+  --good-glow: rgba(5, 150, 105, 0.16);
+  --bad-glow:  rgba(225, 29, 72, 0.16);
 
-  --shadow:  0 20px 50px rgba(15, 23, 42, 0.08);
-  --shadow2: 0 10px 30px rgba(15, 23, 42, 0.05);
+  --shadow:  0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 20px 25px -5px rgba(15, 23, 42, 0.05), 0 0 0 1px rgba(15, 23, 42, 0.05);
+  --shadow2: 0 10px 30px -5px rgba(15, 23, 42, 0.04), 0 0 0 1px rgba(15, 23, 42, 0.05);
 
   --silver-glow: linear-gradient(135deg, #0f172a 0%, #334155 100%);
-  --dial-title-fill: none;
+  --gold-text: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
+  --dial-title-fill: linear-gradient(135deg, #0f172a 0%, #334155 100%);
 
   --body-bg:
-    radial-gradient(1200px 700px at 10% 0%, rgba(0, 0, 0, 0.025), transparent 72%),
-    radial-gradient(1000px 650px at 90% 8%, rgba(0, 0, 0, 0.015), transparent 75%),
-    linear-gradient(180deg, #ffffff, #f4f6fa);
-  --grid-overlay-opacity: 0.04;
-  --grid-overlay-line: rgba(0,0,0,0.05);
+    radial-gradient(1200px 700px at 10% -5%, rgba(59, 130, 246, 0.035), transparent 70%),
+    radial-gradient(1000px 650px at 90% 0%, rgba(99, 102, 241, 0.025), transparent 75%),
+    linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
+  --grid-overlay-opacity: 0.045;
+  --grid-overlay-line: rgba(15, 23, 42, 0.06);
 
-  --topbar-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(245, 247, 250, 0.88) 100%);
-  --topbar-border: rgba(15, 23, 42, 0.12);
-  --topbar-shadow: 0 10px 30px rgba(15, 23, 42, 0.05), inset 0 -1px 0 rgba(0, 0, 0, 0.02);
+  --topbar-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(248, 250, 252, 0.88) 100%);
+  --topbar-border: rgba(15, 23, 42, 0.08);
+  --topbar-shadow: 0 10px 30px -10px rgba(15, 23, 42, 0.08), inset 0 -1px 0 rgba(15, 23, 42, 0.04);
   --topbar-specular: linear-gradient(90deg,
     transparent 0%,
-    rgba(15, 23, 42, 0.15) 20%,
-    rgba(15, 23, 42, 0.05) 50%,
-    rgba(15, 23, 42, 0.15) 80%,
+    rgba(15, 23, 42, 0.12) 20%,
+    rgba(15, 23, 42, 0.03) 50%,
+    rgba(15, 23, 42, 0.12) 80%,
     transparent 100%
   );
 
   --tab-bg: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
   --tab-bg-active: linear-gradient(180deg, #ffffff 0%, #e2e8f0 100%);
-  --tab-border: rgba(15, 23, 42, 0.12);
-  --tab-border-hover: rgba(15, 23, 42, 0.22);
+  --tab-border: rgba(15, 23, 42, 0.10);
+  --tab-border-hover: rgba(15, 23, 42, 0.20);
   --tab-border-active: rgba(15, 23, 42, 0.30);
 
-  /* Light dial face */
+  /* Light Dial Gauge Face */
   --dial-face-bg:
-    radial-gradient(closest-side at 50% 15%, rgba(255,255,255,1), transparent 60%),
+    radial-gradient(closest-side at 50% 15%, #ffffff, transparent 60%),
     repeating-radial-gradient(circle, #ffffff 0px, #f1f5f9 1px, #ffffff 2px),
     conic-gradient(from 180deg at 50% 50%,
-      rgba(0,0,0,0.02) 0deg,
-      rgba(0,0,0,0.06) 90deg,
-      rgba(0,0,0,0.02) 180deg,
-      rgba(0,0,0,0.06) 270deg,
-      rgba(0,0,0,0.02) 360deg
+      rgba(0,0,0,0.01) 0deg,
+      rgba(0,0,0,0.04) 90deg,
+      rgba(0,0,0,0.01) 180deg,
+      rgba(0,0,0,0.04) 270deg,
+      rgba(0,0,0,0.01) 360deg
     );
   --dial-face-blend: normal, normal, overlay;
   --dial-tick: #0f172a;
-  --dial-lens: linear-gradient(135deg, rgba(15, 23, 42, 0.06) 0%, rgba(15, 23, 42, 0.01) 40%, rgba(15, 23, 42, 0.03) 100%);
-  --dial-needle-bg: linear-gradient(90deg, #1e293b 0%, #475569 50%, #0f172a 100%);
+  --dial-lens: linear-gradient(135deg, rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 0) 50%, rgba(15, 23, 42, 0.03) 100%);
+  --dial-needle-bg: linear-gradient(90deg, #0f172a 0%, #334155 50%, #1e293b 100%);
 
-  /* Light histogram */
+  /* Light Histogram */
   --hist-wrap-bg: #ffffff;
   --hist-name: #334155;
-  --hist-tooltip-bg: #ffffff;
-  --hist-pos-shadow: 0 8px 20px rgba(0, 168, 84, 0.25);
-  --hist-neg-shadow: 0 8px 20px rgba(225, 29, 72, 0.25);
+  --hist-tooltip-bg: rgba(255, 255, 255, 0.98);
+  --hist-pos-shadow: 0 10px 24px rgba(5, 150, 105, 0.20);
+  --hist-neg-shadow: 0 10px 24px rgba(225, 29, 72, 0.20);
 
-  --modal-backdrop: rgba(15, 23, 42, 0.40);
+  --modal-backdrop: rgba(15, 23, 42, 0.45);
   --modal-bg: linear-gradient(180deg, #ffffff, #f8fafc);
 
   --heatmap-bg: #ffffff;
 
-  --scroll-track: #f4f6fa;
-  --scroll-thumb: rgba(15, 23, 42, 0.18);
-  --scroll-thumb-hover: rgba(15, 23, 42, 0.35);
+  --scroll-track: #f1f5f9;
+  --scroll-thumb: rgba(15, 23, 42, 0.16);
+  --scroll-thumb-hover: rgba(15, 23, 42, 0.30);
 }
 
 /* ==========================================================================
-   1) BASE
+   1) BASE & CANVAS
 ========================================================================== */
 html, body { height: 100%; }
 
 body {
   margin: 0;
   color: var(--text);
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   -webkit-font-smoothing: antialiased;
-  text-rendering: geometricPrecision;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
   background: var(--body-bg);
   overflow-x: hidden;
 }
 
 body::before {
-  content:"";
+  content: "";
   position: fixed;
   inset: 0;
   pointer-events: none;
@@ -268,7 +265,7 @@ body::before {
 }
 
 a { color: color-mix(in srgb, var(--text) 92%, transparent); transition: color .15s ease; text-decoration: none; }
-a:hover { color: color-mix(in srgb, var(--text) 100%, transparent); text-decoration: underline; }
+a:hover { color: var(--text); text-decoration: underline; }
 hr { border-color: var(--border2) !important; opacity: 1; }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -278,19 +275,19 @@ hr { border-color: var(--border2) !important; opacity: 1; }
 
 /* Layout */
 .page-wrap { max-width: 1440px; margin: 0 auto; padding: 16px 20px 40px; }
-.page-title { font-weight: 950; letter-spacing: -0.01em; margin: 8px 0 12px; color: var(--text); }
+.page-title { font-weight: 950; letter-spacing: -0.015em; margin: 8px 0 12px; color: var(--text); }
 
 .tt-brand { display: flex; align-items: center; gap: 12px; padding: 4px 0; }
 .tt-logo {
   height: 48px; width: auto;
-  filter: drop-shadow(0 10px 20px rgba(0,0,0,0.25));
-  opacity: 0.95;
+  filter: drop-shadow(0 8px 16px rgba(0,0,0,0.15));
+  opacity: 0.96;
   transition: transform .25s cubic-bezier(0.16, 1, 0.3, 1), opacity .25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .tt-logo:hover { opacity: 1; transform: scale(1.02); }
 
 /* ==========================================================================
-   2) TOPBAR & NAV
+   2) TOPBAR & NAVIGATION
 ========================================================================== */
 .topbar-wrap {
   position: sticky;
@@ -306,7 +303,7 @@ hr { border-color: var(--border2) !important; opacity: 1; }
 }
 
 .topbar-wrap::after {
-  content:"";
+  content: "";
   position: absolute;
   left: 24px;
   right: 24px;
@@ -324,9 +321,9 @@ hr { border-color: var(--border2) !important; opacity: 1; }
   border-radius: 999px;
   border: 1px solid var(--tab-border);
   background: var(--tab-bg);
-  box-shadow: 0 8px 20px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.10);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.15);
   font-weight: 800;
-  font-size: 12.5px;
+  font-size: 12px;
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--muted);
@@ -338,26 +335,26 @@ hr { border-color: var(--border2) !important; opacity: 1; }
   color: var(--text);
   border-color: var(--tab-border-hover);
   transform: translateY(-1px);
-  box-shadow: 0 12px 24px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.14);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.08);
 }
 .top-tab.active {
   color: var(--text);
   border-color: var(--tab-border-active);
   background: var(--tab-bg-active);
-  box-shadow: 0 0 12px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.18);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.25);
 }
 
-/* Top stats */
+/* Top Stats */
 .top-stats-wrap { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
 
 .stat-chip {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 8px 14px;
   border-radius: 999px;
-  border: 1px solid var(--border2);
+  border: 1px solid var(--border);
   background: color-mix(in srgb, var(--text) 4%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 6px 15px rgba(0,0,0,0.10);
-  color: color-mix(in srgb, var(--muted) 100%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 4px 12px rgba(0,0,0,0.04);
+  color: var(--muted);
   font-family: var(--mono);
   font-weight: 800;
   font-size: 11px;
@@ -375,25 +372,48 @@ hr { border-color: var(--border2) !important; opacity: 1; }
   letter-spacing: 0.06em;
   border: 1px solid var(--border) !important;
   background: color-mix(in srgb, var(--text) 4%, transparent) !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 8px 20px rgba(0,0,0,0.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 6px 16px rgba(0,0,0,0.06);
 }
 
-/* Live/Offline badge colors (Bootstrap .bg-success/.bg-danger) */
 .stat-badge.badge.bg-success {
   background: color-mix(in srgb, var(--good) 12%, transparent) !important;
-  border-color: color-mix(in srgb, var(--good) 45%, transparent) !important;
+  border-color: color-mix(in srgb, var(--good) 40%, transparent) !important;
   color: var(--good) !important;
-  text-shadow: 0 0 10px color-mix(in srgb, var(--good) 25%, transparent) !important;
 }
 .stat-badge.badge.bg-danger {
   background: color-mix(in srgb, var(--bad) 12%, transparent) !important;
-  border-color: color-mix(in srgb, var(--bad) 45%, transparent) !important;
+  border-color: color-mix(in srgb, var(--bad) 40%, transparent) !important;
   color: var(--bad) !important;
-  text-shadow: 0 0 10px color-mix(in srgb, var(--bad) 25%, transparent) !important;
 }
 
+/* Theme Toggle Button */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.12);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .15s ease, filter .15s ease, background .2s ease, border-color .2s ease;
+}
+.theme-toggle:hover { transform: translateY(-1px); filter: brightness(1.06); }
+.theme-toggle:active { transform: translateY(0) scale(0.96); }
+
+.theme-toggle .bi { font-size: 17px; line-height: 1; color: var(--text); }
+.theme-toggle .icon-sun { display: inline; }
+.theme-toggle .icon-moon { display: none; }
+
+html[data-theme="light"] .theme-toggle .icon-sun { display: none; }
+html[data-theme="light"] .theme-toggle .icon-moon { display: inline; }
+
 /* ==========================================================================
-   3) STATUS BEACON (ONLINE / OFFLINE)
+   3) STATUS BEACON
 ========================================================================== */
 .status-beacon {
   display: inline-flex;
@@ -437,10 +457,9 @@ hr { border-color: var(--border2) !important; opacity: 1; }
 .status-beacon.online,
 .top-tab.online {
   border: 1px solid color-mix(in srgb, var(--good) 35%, transparent) !important;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--good) 10%, transparent), color-mix(in srgb, var(--good) 2%, transparent)) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--good) 12%, transparent), color-mix(in srgb, var(--good) 3%, transparent)) !important;
   color: var(--good) !important;
-  text-shadow: 0 0 10px var(--good-glow) !important;
-  box-shadow: 0 4px 15px color-mix(in srgb, var(--good) 15%, transparent), inset 0 1px 0 color-mix(in srgb, var(--good) 10%, transparent) !important;
+  box-shadow: 0 4px 15px color-mix(in srgb, var(--good) 12%, transparent), inset 0 1px 0 color-mix(in srgb, var(--good) 15%, transparent) !important;
 }
 .status-beacon.online .status-dot { background-color: var(--good); box-shadow: 0 0 10px var(--good); }
 .status-beacon.online .status-dot::after { background-color: var(--good); }
@@ -450,16 +469,15 @@ hr { border-color: var(--border2) !important; opacity: 1; }
 .status-beacon.offline,
 .top-tab.offline {
   border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent) !important;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--bad) 10%, transparent), color-mix(in srgb, var(--bad) 2%, transparent)) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bad) 12%, transparent), color-mix(in srgb, var(--bad) 3%, transparent)) !important;
   color: var(--bad) !important;
-  text-shadow: 0 0 10px var(--bad-glow) !important;
-  box-shadow: 0 4px 15px color-mix(in srgb, var(--bad) 15%, transparent), inset 0 1px 0 color-mix(in srgb, var(--bad) 10%, transparent) !important;
+  box-shadow: 0 4px 15px color-mix(in srgb, var(--bad) 12%, transparent), inset 0 1px 0 color-mix(in srgb, var(--bad) 15%, transparent) !important;
 }
 .status-beacon.offline .status-dot { background-color: var(--bad); box-shadow: 0 0 10px var(--bad); }
 .status-beacon.offline .status-dot::after { background-color: var(--bad); animation-duration: 1.1s; }
 
 /* ==========================================================================
-   4) SURFACES (cards/panels used across pages)
+   4) SURFACES & CONTAINERS
 ========================================================================== */
 .grid-wrap {
   border-radius: var(--radius-lg);
@@ -488,6 +506,69 @@ hr { border-color: var(--border2) !important; opacity: 1; }
   position: relative;
 }
 
+/* Section Pill Headings */
+.page-wrap h6 {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 16px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.08);
+  font-weight: 850;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--muted) 95%, transparent);
+  user-select: none;
+  white-space: nowrap;
+}
+.page-wrap h6::before {
+  content: "";
+  width: 6px; height: 6px; border-radius: 999px;
+  background: var(--text);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--text) 8%, transparent);
+}
+.page-wrap h6.tt-top15-gainers::before {
+  background: var(--good) !important;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 18%, transparent) !important;
+}
+.page-wrap h6.tt-top15-losers::before {
+  background: var(--bad) !important;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--bad) 18%, transparent) !important;
+}
+
+/* Custom Compact Section Title Pill */
+.page-title.page-title--pill {
+  padding: 11px 18px !important;
+  border-radius: 999px !important;
+  font-size: 11px !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.14em !important;
+  text-transform: uppercase !important;
+  line-height: 1 !important;
+  margin: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  border: 1px solid var(--border) !important;
+  background: color-mix(in srgb, var(--text) 4%, transparent) !important;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.10) !important;
+  color: color-mix(in srgb, var(--muted) 95%, transparent) !important;
+}
+.page-title.page-title--pill::before {
+  content: "";
+  width: 6px !important;
+  height: 6px !important;
+  border-radius: 999px !important;
+  background: var(--text) !important;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--text) 8%, transparent) !important;
+  flex: 0 0 auto;
+}
+
 /* ==========================================================================
    5) HAUTE HORLOGERIE DIALS
 ========================================================================== */
@@ -495,9 +576,13 @@ hr { border-color: var(--border2) !important; opacity: 1; }
 
 .dial-card {
   padding: 24px;
-  transition: border-color .2s ease, transform .12s ease, filter .12s ease;
+  transition: border-color .2s ease, transform .15s ease, box-shadow .2s ease;
 }
-.dial-card:hover { border-color: color-mix(in srgb, var(--border) 70%, transparent); transform: translateY(-1px); filter: brightness(1.02); }
+.dial-card:hover {
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
 
 .dial-arc-wrap {
   --dial-size: 300px;
@@ -512,7 +597,7 @@ hr { border-color: var(--border2) !important; opacity: 1; }
 
 .dial-arc-clip { position: relative; width: 100%; height: calc(var(--dial-radius) + 10px); overflow: hidden; }
 
-/* Outer bezel (kept premium; works for both themes) */
+/* Outer Bezel Rim */
 .dial-arc-clip::before {
   content: "";
   position: absolute;
@@ -524,24 +609,21 @@ hr { border-color: var(--border2) !important; opacity: 1; }
   border-radius: 999px;
   pointer-events: none;
   z-index: 4;
-
   background:
     conic-gradient(from 250deg,
       rgba(255,255,255,0.25) 0deg,
       rgba(255,255,255,0.05) 40deg,
       rgba(255,255,255,0.18) 120deg,
-      rgba(0,0,0,0.25) 180deg,
+      rgba(0,0,0,0.20) 180deg,
       rgba(255,255,255,0.20) 270deg,
       rgba(255,255,255,0.25) 360deg
     ),
-    radial-gradient(closest-side, rgba(0,0,0,0) 84%, rgba(0,0,0,0.20) 93%, rgba(0,0,0,0) 100%);
+    radial-gradient(closest-side, rgba(0,0,0,0) 84%, rgba(0,0,0,0.15) 93%, rgba(0,0,0,0) 100%);
   background-blend-mode: normal, multiply;
-
   mask-image: radial-gradient(closest-side, transparent 94.3%, #000 94.6% 97.2%, transparent 97.8%);
   -webkit-mask-image: radial-gradient(closest-side, transparent 94.3%, #000 94.6% 97.2%, transparent 97.8%);
-
-  box-shadow: 0 10px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.18);
-  opacity: 0.92;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.20);
+  opacity: 0.90;
 }
 
 .dial-arc {
@@ -554,13 +636,12 @@ hr { border-color: var(--border2) !important; opacity: 1; }
   border-radius: 999px;
   pointer-events: none;
   z-index: 1;
-
   background: var(--dial-face-bg);
   background-blend-mode: var(--dial-face-blend);
-  box-shadow: 0 40px 100px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.10);
+  box-shadow: 0 30px 70px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.15);
 }
 
-/* Tick marks */
+/* Tick Marks */
 .dial-arc::before {
   content: "";
   position: absolute;
@@ -568,7 +649,7 @@ hr { border-color: var(--border2) !important; opacity: 1; }
   border-radius: 999px;
   z-index: 2;
   pointer-events: none;
-  opacity: 0.28;
+  opacity: 0.32;
   background:
     repeating-conic-gradient(from 270deg, var(--dial-tick) 0deg 0.4deg, transparent 0.4deg 6deg),
     repeating-conic-gradient(from 270deg, var(--dial-tick) 0deg 1.2deg, transparent 1.2deg 30deg);
@@ -576,9 +657,9 @@ hr { border-color: var(--border2) !important; opacity: 1; }
   -webkit-mask-image: radial-gradient(closest-side, transparent 89%, #000 90% 100%);
 }
 
-/* Lens */
+/* Lens Specular Reflection */
 .dial-arc::after {
-  content:"";
+  content: "";
   position: absolute;
   inset: 1px;
   border-radius: 999px;
@@ -587,16 +668,15 @@ hr { border-color: var(--border2) !important; opacity: 1; }
   z-index: 7;
 }
 
-/* Color channel ring */
+/* Color Channel Ring */
 .dial-arc-sentiment::before,
 .dial-arc-pcr::before {
-  content:"";
+  content: "";
   position: absolute;
   inset: 0;
   border-radius: 999px;
   pointer-events: none;
   z-index: 3;
-
   background:
     conic-gradient(from 270deg,
       var(--dial-sell-strong) 0deg 34deg,
@@ -607,10 +687,8 @@ hr { border-color: var(--border2) !important; opacity: 1; }
       var(--dial-buy-strong) 144deg 180deg,
       transparent 180deg
     );
-
   mask-image: radial-gradient(closest-side at 50% 50%, transparent 74.5%, black 75% 76.5%, transparent 77%);
   -webkit-mask-image: radial-gradient(closest-side at 50% 50%, transparent 74.5%, black 75% 76.5%, transparent 77%);
-
   filter:
     drop-shadow(0 0 4px rgba(255, 255, 255, 0.10))
     contrast(var(--dial-contrast))
@@ -618,7 +696,7 @@ hr { border-color: var(--border2) !important; opacity: 1; }
     brightness(var(--dial-brightness));
 }
 
-/* Needle */
+/* Gauge Needle */
 .dial-needle {
   --rot: 0deg;
   position: absolute;
@@ -631,11 +709,10 @@ hr { border-color: var(--border2) !important; opacity: 1; }
   pointer-events: none;
   z-index: 5;
   transition: transform 1.2s cubic-bezier(0.16, 1, 0.3, 1);
-
   background: var(--dial-needle-bg);
   clip-path: polygon(50% 0%, 100% 12%, 65% 12%, 65% 75%, 100% 75%, 100% 100%, 0% 100%, 0% 75%, 35% 75%, 35% 12%, 0% 12%);
   -webkit-clip-path: polygon(50% 0%, 100% 12%, 65% 12%, 65% 75%, 100% 75%, 100% 100%, 0% 100%, 0% 75%, 35% 75%, 35% 12%, 0% 12%);
-  box-shadow: 6px 14px 10px rgba(0,0,0,0.22), 0 0 10px rgba(255,255,255,0.08);
+  box-shadow: 6px 14px 10px rgba(0,0,0,0.18);
 }
 .dial-needle::before {
   content: "";
@@ -658,12 +735,11 @@ hr { border-color: var(--border2) !important; opacity: 1; }
   border-radius: 999px;
   pointer-events: none;
   z-index: 6;
-
   background:
     conic-gradient(from 0deg, rgba(255,255,255,0.95), rgba(140,150,170,0.55) 90deg, rgba(255,255,255,0.95) 180deg, rgba(140,150,170,0.55) 270deg, rgba(255,255,255,0.95)),
     radial-gradient(circle at 35% 35%, rgba(255,255,255,0.95) 0%, rgba(0,0,0,0.45) 85%);
   background-blend-mode: overlay, normal;
-  box-shadow: 0 6px 15px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.4), 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent);
+  box-shadow: 0 6px 15px rgba(0,0,0,0.20), inset 0 1px 0 rgba(255,255,255,0.5), 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent);
 }
 
 .dial-label {
@@ -678,11 +754,9 @@ hr { border-color: var(--border2) !important; opacity: 1; }
   text-transform: uppercase;
   user-select: none;
   pointer-events: none;
-  color: color-mix(in srgb, var(--muted) 90%, transparent);
-  text-shadow: 0 8px 20px rgba(0,0,0,0.25);
+  color: var(--muted);
 }
 
-/* positions */
 .dial-n  { width: 140px; left: 50%; top: -2%; transform: translate(-50%, -50%); color: var(--text) !important; font-size: 11px; }
 .dial-s  { left: 24%; top: 21%; transform: translate(-50%, -50%); }
 .dial-b  { left: 76%; top: 21%; transform: translate(-50%, -50%); }
@@ -700,10 +774,6 @@ hr { border-color: var(--border2) !important; opacity: 1; }
   background-clip: text;
   color: transparent;
 }
-html[data-theme="light"] .dial-title {
-  background: none;
-  color: var(--text);
-}
 
 .dial-sub { display: flex; justify-content: center; margin-top: 14px; }
 
@@ -714,18 +784,16 @@ html[data-theme="light"] .dial-title {
   gap: 12px;
   flex-wrap: wrap;
   row-gap: 6px;
-
   padding: 8px 16px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border2);
   background: color-mix(in srgb, var(--text) 3%, transparent);
-  box-shadow: 0 12px 28px rgba(0,0,0,0.10), inset 0 1px 0 rgba(255,255,255,0.04);
-
+  box-shadow: 0 6px 18px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.06);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-size: 11px;
   font-weight: 800;
-  color: color-mix(in srgb, var(--muted) 100%, transparent);
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
@@ -741,49 +809,33 @@ html[data-theme="light"] .dial-title {
   letter-spacing: 0.10em;
 }
 .dial-state.state-ss,
-.dial-state.state-sell { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 20%, transparent); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.dial-state.state-sell { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 25%, transparent); background: color-mix(in srgb, var(--bad) 10%, transparent); }
 .dial-state.state-buy,
-.dial-state.state-sb { color: var(--good); border-color: color-mix(in srgb, var(--good) 20%, transparent); background: color-mix(in srgb, var(--good) 12%, transparent); }
+.dial-state.state-sb { color: var(--good); border-color: color-mix(in srgb, var(--good) 25%, transparent); background: color-mix(in srgb, var(--good) 10%, transparent); }
 
-/* Section pill headings */
-.page-wrap h6 {
+/* Sector Section Title */
+.sector-title {
   position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  margin: 8px 0 16px;
-  padding: 10px 18px;
-  border-radius: 999px;
+  display: inline-block;
+  margin: 0;
+  padding: 10px 18px 12px;
+  font-size: 28px;
+  line-height: 1.15;
+  border-radius: 16px;
   border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--text) 5%, transparent);
-  box-shadow: 0 12px 28px rgba(0,0,0,0.10), inset 0 1px 0 rgba(255,255,255,0.05);
-  font-weight: 850;
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.08);
+  font-weight: 950;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  font-size: 11px;
-  color: color-mix(in srgb, var(--muted) 95%, transparent);
-  user-select: none;
-  white-space: nowrap;
-}
-.page-wrap h6::before {
-  content: "";
-  width: 6px; height: 6px; border-radius: 999px;
-  background: var(--text);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--text) 6%, transparent), 0 0 8px color-mix(in srgb, var(--text) 20%, transparent);
-}
-.page-wrap h6::after {
-  content: "";
-  position: absolute;
-  left: 18px; right: 18px; top: 1px;
-  height: 1px;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--text) 12%, transparent), color-mix(in srgb, var(--text) 3%, transparent), color-mix(in srgb, var(--text) 12%, transparent));
-  opacity: 0.5;
+  color: transparent;
+  background-image: var(--gold-text);
+  -webkit-background-clip: text;
+  background-clip: text;
 }
 
 /* ==========================================================================
-   6) SECTOR HISTOGRAM (CLEAN, RESPONSIVE, NO CLIPPING)
-   - Desktop (>=1200px): try to fit with space-between, no scroll
-   - Smaller: horizontal scroll with snap
+   6) SECTOR HISTOGRAM
 ========================================================================== */
 .sector-bars-wrap {
   padding: 12px 10px 10px;
@@ -791,10 +843,11 @@ html[data-theme="light"] .dial-title {
   border: 1px solid var(--border2);
   background: var(--hist-wrap-bg);
   box-shadow: var(--shadow2);
-  overflow: hidden; /* wrapper contains the scroller */
+  overflow: hidden;
 }
 
 .sector-hist-plot {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 12px;
@@ -806,6 +859,28 @@ html[data-theme="light"] .dial-title {
   padding: 6px 4px 2px;
 }
 .sector-hist-plot::-webkit-scrollbar { display: none; }
+
+.sector-hist-axis {
+  flex: 0 0 var(--axisW, 68px);
+  width: var(--axisW, 68px);
+  height: var(--plotH, 360px);
+  position: relative;
+  margin-right: 4px;
+  opacity: 0.95;
+}
+.sector-axis-tick {
+  position: absolute;
+  left: 0;
+  transform: translateY(-50%);
+  font-family: var(--mono);
+  font-weight: 900;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.sector-hist-zero-line { display: none !important; }
 
 .sector-hist-link {
   flex: 0 0 auto;
@@ -820,47 +895,72 @@ html[data-theme="light"] .dial-title {
 .sector-hist-col {
   width: 100%;
   max-width: 150px;
-  height: 380px;
+  height: auto !important;
+  min-height: calc(var(--plotH, 360px) + var(--labelH, 36px) + 24px);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
   position: relative;
-  padding: 6px 4px 2px;
+  padding: 6px 4px 0;
 }
 
 .sector-hist-track {
   width: clamp(34px, 3.2vw, 60px);
-  height: 220px;
+  height: var(--plotH, 360px);
   position: relative;
-  margin-bottom: 10px;
+  margin-bottom: 0;
   background: transparent;
   border: none;
+  overflow: hidden !important;
+  isolation: isolate;
+  contain: paint;
+  clip-path: inset(0 round 18px);
+}
+
+.sector-hist-track::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  top: var(--zero, 50%);
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--text) 22%, transparent) 20%,
+    color-mix(in srgb, var(--text) 12%, transparent) 50%,
+    color-mix(in srgb, var(--text) 22%, transparent) 80%,
+    transparent 100%
+  );
+  opacity: 0.65;
+  pointer-events: none;
 }
 
 .sector-hist-bar {
   position: absolute;
-  left: 10%;
-  right: 10%;
+  left: 10%; right: 10%;
   border-radius: 14px;
   overflow: hidden;
-  filter: saturate(1.30) contrast(1.15) brightness(1.05);
+  filter: saturate(1.25) contrast(1.12) brightness(1.05);
 }
 
 .sector-hist-bar.pos {
-  bottom: 50%;
+  bottom: calc(100% - var(--zero, 50%)) !important;
+  top: auto !important;
   background: var(--hist-pos-bg);
   box-shadow: var(--hist-pos-shadow);
-}
-.sector-hist-bar.neg {
-  top: 50%;
-  background: var(--hist-neg-bg);
-  box-shadow: var(--hist-neg-shadow);
+  max-height: var(--zero, 50%);
 }
 
-/* glossy sheen */
+.sector-hist-bar.neg {
+  top: var(--zero, 50%) !important;
+  bottom: auto !important;
+  background: var(--hist-neg-bg);
+  box-shadow: var(--hist-neg-shadow);
+  max-height: calc(100% - var(--zero, 50%));
+}
+
 .sector-hist-bar::after {
-  content:"";
+  content: "";
   position: absolute;
   inset: -40% -60%;
   background: linear-gradient(120deg, transparent 42%, rgba(255,255,255,0.22) 50%, transparent 58%);
@@ -869,10 +969,17 @@ html[data-theme="light"] .dial-title {
   pointer-events: none;
   opacity: 0.55;
 }
-@keyframes histSheen { 0%{ transform: translateX(-35%) rotate(10deg); } 100%{ transform: translateX(35%) rotate(10deg); } }
+@keyframes histSheen {
+  0% { transform: translateX(-35%) rotate(10deg); }
+  100% { transform: translateX(35%) rotate(10deg); }
+}
 
 .sector-hist-name {
-  margin-top: 2px;
+  height: var(--labelH, 36px);
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   font-weight: 950;
   font-size: clamp(9px, 0.85vw, 12px);
@@ -880,6 +987,8 @@ html[data-theme="light"] .dial-title {
   color: var(--hist-name);
   text-transform: uppercase;
   white-space: nowrap;
+  position: relative;
+  z-index: 5;
 }
 
 .sector-hist-tooltip {
@@ -890,37 +999,37 @@ html[data-theme="light"] .dial-title {
   opacity: 0;
   pointer-events: none;
   transition: opacity .12s ease, transform .12s ease;
-
   min-width: 128px;
   padding: 10px 12px;
   border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border: 1px solid var(--border);
   background: var(--hist-tooltip-bg);
-  box-shadow: 0 18px 46px rgba(0,0,0,0.18);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.12);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   z-index: 20;
 }
 .sector-hist-tooltip::after {
-  content:"";
+  content: "";
   position: absolute;
   left: 20px;
   bottom: -7px;
-  width: 14px;
-  height: 14px;
+  width: 14px; height: 14px;
   transform: rotate(45deg);
-  background: color-mix(in srgb, var(--bg0) 85%, transparent);
-  border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: var(--hist-tooltip-bg);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
-.sector-hist-col:hover .sector-hist-tooltip { opacity: 1; transform: translateX(-50%) translateY(0); }
-
+.sector-hist-col:hover .sector-hist-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
 .sector-hist-tip-name {
   font-family: var(--mono);
   font-weight: 950;
   font-size: 12px;
   letter-spacing: 0.10em;
-  color: color-mix(in srgb, var(--muted) 95%, transparent);
+  color: var(--muted);
 }
 .sector-hist-tip-val {
   margin-top: 4px;
@@ -932,19 +1041,13 @@ html[data-theme="light"] .dial-title {
 }
 
 @media (min-width: 1200px) {
-  .sector-hist-plot {
-    overflow-x: hidden;
-    justify-content: space-between;
-  }
-  .sector-hist-link {
-    flex: 1 1 0;
-    min-width: 72px;
-  }
+  .sector-hist-plot { overflow-x: hidden; justify-content: space-between; }
+  .sector-hist-link { flex: 1 1 0; min-width: 72px; }
   .sector-hist-col { max-width: none; width: 100%; }
 }
 
 /* ==========================================================================
-   7) TABLES (RIGHT-ALIGNED NUMERIC)
+   7) TABLES & DENSE DATA
 ========================================================================== */
 table { width: 100%; border-collapse: collapse; table-layout: fixed; border-spacing: 0; }
 
@@ -967,7 +1070,6 @@ th:first-child { text-align: left; }
 td { text-align: right; color: var(--text); font-weight: 700; }
 td:first-child { text-align: left; }
 
-/* Stock cell */
 .stock-cell {
   display: flex;
   flex-direction: column;
@@ -977,37 +1079,38 @@ td:first-child { text-align: left; }
   align-items: flex-start;
   height: 100%;
 }
-.stock-sym { font-family: var(--mono); font-weight: 950; letter-spacing: 0.25px; color: color-mix(in srgb, var(--text) 92%, transparent); }
-.stock-name { font-size: 11px; font-weight: 700; color: color-mix(in srgb, var(--muted) 90%, transparent); overflow: hidden; text-overflow: ellipsis; }
+.stock-sym { font-family: var(--mono); font-weight: 950; letter-spacing: 0.25px; color: var(--text); }
+.stock-name { font-size: 11px; font-weight: 700; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 
 /* ==========================================================================
-   8) AG GRID (works for both themes, app keeps .ag-theme-alpine-dark)
+   8) AG GRID THEMING
 ========================================================================== */
-.ag-theme-alpine-dark {
-  --ag-font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+html .ag-theme-alpine-dark {
+  --ag-font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
   --ag-font-size: 13px;
-
-  --ag-border-color: var(--border2);
-  --ag-row-border-color: var(--border2);
-
-  --ag-foreground-color: var(--text);
-  --ag-secondary-foreground-color: var(--muted);
-
-  --ag-background-color: transparent;
-  --ag-odd-row-background-color: color-mix(in srgb, var(--text) 3%, transparent);
-  --ag-row-hover-color: color-mix(in srgb, var(--text) 6%, transparent);
-
-  --ag-selected-row-background-color: color-mix(in srgb, var(--text) 10%, transparent);
-  --ag-range-selection-border-color: color-mix(in srgb, var(--text) 45%, transparent);
-
+  --ag-border-color: var(--border2) !important;
+  --ag-row-border-color: var(--border2) !important;
+  --ag-foreground-color: var(--text) !important;
+  --ag-secondary-foreground-color: var(--muted) !important;
+  --ag-header-foreground-color: var(--text) !important;
+  --ag-header-background-color: var(--card-hd-bg) !important;
+  --ag-background-color: transparent !important;
   --ag-header-height: 48px;
   --ag-row-height: 40px;
-
   --grid-pad-x: 6px;
 }
 
-.compact-grid.ag-theme-alpine-dark { --grid-pad-x: 6px; }
-#grid.ag-theme-alpine-dark { --grid-pad-x: 6px; --ag-header-height: 48px; }
+html[data-theme="light"] .ag-theme-alpine-dark {
+  --ag-odd-row-background-color: rgba(15, 23, 42, 0.02) !important;
+  --ag-row-hover-color: rgba(15, 23, 42, 0.05) !important;
+  --ag-selected-row-background-color: rgba(15, 23, 42, 0.08) !important;
+}
+
+html[data-theme="dark"] .ag-theme-alpine-dark {
+  --ag-odd-row-background-color: rgba(255, 255, 255, 0.025) !important;
+  --ag-row-hover-color: rgba(255, 255, 255, 0.06) !important;
+  --ag-selected-row-background-color: rgba(255, 255, 255, 0.10) !important;
+}
 
 .ag-theme-alpine-dark .ag-root-wrapper {
   border: none !important;
@@ -1022,7 +1125,6 @@ td:first-child { text-align: left; }
 }
 
 .ag-theme-alpine-dark .ag-row { border-bottom: 1px solid var(--border2); }
-.ag-theme-alpine-dark .ag-row:hover { background: var(--ag-row-hover-color) !important; }
 
 .ag-theme-alpine-dark .ag-header-cell,
 .ag-theme-alpine-dark .ag-cell {
@@ -1037,7 +1139,6 @@ td:first-child { text-align: left; }
   font-size: 11px;
 }
 
-/* Alignment: left for first text columns, right for numeric */
 .ag-theme-alpine-dark .ag-header-cell-label {
   width: 100% !important;
   display: flex !important;
@@ -1046,7 +1147,6 @@ td:first-child { text-align: left; }
   justify-content: flex-start;
 }
 
-/* Right headers */
 .ag-theme-alpine-dark .ag-header-cell.ag-right-aligned-header .ag-header-cell-label { justify-content: flex-end !important; }
 .ag-theme-alpine-dark .ag-header-cell.ag-right-aligned-header .ag-header-icon,
 .ag-theme-alpine-dark .ag-header-cell.ag-right-aligned-header .ag-header-cell-menu-button {
@@ -1055,7 +1155,6 @@ td:first-child { text-align: left; }
   margin-left: 0 !important;
 }
 
-/* Cell wrappers */
 .ag-theme-alpine-dark .ag-cell-value,
 .ag-theme-alpine-dark .ag-cell-wrapper {
   width: 100% !important;
@@ -1063,7 +1162,6 @@ td:first-child { text-align: left; }
   align-items: center !important;
 }
 
-/* Right aligned cells */
 .ag-theme-alpine-dark .ag-cell.ag-right-aligned-cell .ag-cell-value,
 .ag-theme-alpine-dark .ag-cell.ag-right-aligned-cell .ag-cell-wrapper,
 .ag-theme-alpine-dark .ag-cell.cell-num .ag-cell-value,
@@ -1072,7 +1170,6 @@ td:first-child { text-align: left; }
   text-align: right !important;
 }
 
-/* Val pills: pill-less, colored */
 .ag-theme-alpine-dark .val-pill,
 .ag-theme-alpine-dark .val-pill.up,
 .ag-theme-alpine-dark .val-pill.down,
@@ -1083,37 +1180,36 @@ td:first-child { text-align: left; }
   border: none !important;
   box-shadow: none !important;
   padding: 0 !important;
-
   font-family: var(--mono);
   font-weight: 950 !important;
-  font-size: 14px;
+  font-size: 13.5px;
   letter-spacing: 0.15px;
   white-space: nowrap;
-  color: color-mix(in srgb, var(--text) 92%, transparent) !important;
+  color: var(--text) !important;
 }
 .ag-theme-alpine-dark .val-pill.up { color: var(--good) !important; }
 .ag-theme-alpine-dark .val-pill.down { color: var(--bad) !important; }
-.ag-theme-alpine-dark .val-pill.neutral { color: color-mix(in srgb, var(--muted) 95%, transparent) !important; }
+.ag-theme-alpine-dark .val-pill.neutral { color: var(--muted) !important; }
 
 .ag-theme-alpine-dark .ag-cell { font-weight: 800 !important; }
 .ag-theme-alpine-dark .ag-cell.cell-pos { color: var(--good) !important; font-weight: 900 !important; }
 .ag-theme-alpine-dark .ag-cell.cell-neg { color: var(--bad) !important; font-weight: 900 !important; }
 
 /* ==========================================================================
-   9) SEGMENTED SORT TOGGLES
+   9) SEGMENTED CONTROL TOGGLES
 ========================================================================== */
 #sectors-sort,
 #sector-sort {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
-  background: color-mix(in srgb, var(--text) 5%, transparent);
-  box-shadow: 0 16px 46px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.10);
-  backdrop-filter: blur(14px) saturate(1.12);
-  -webkit-backdrop-filter: blur(14px) saturate(1.12);
+  gap: 5px !important;
+  padding: 3px 5px !important;
+  border-radius: 999px !important;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.08);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 #sectors-sort .form-check,
 #sector-sort  .form-check { margin: 0 !important; padding: 0 !important; display: inline-flex; align-items: center; }
@@ -1125,73 +1221,42 @@ td:first-child { text-align: left; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-
-  padding: 7px 12px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
-  background: color-mix(in srgb, var(--bg0) 70%, transparent);
-
-  color: color-mix(in srgb, var(--muted) 95%, transparent);
-  font-weight: 950;
-  letter-spacing: 0.45px;
+  padding: 5px 10px !important;
+  border-radius: 999px !important;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 900 !important;
+  letter-spacing: 0.05em !important;
   text-transform: uppercase;
-  font-size: 11px;
+  font-size: 10px !important;
   user-select: none;
   cursor: pointer;
-
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 26px rgba(0,0,0,0.14);
-  transition: background .18s ease, border-color .18s ease, color .18s ease, filter .18s ease;
+  transition: all .18s ease;
 }
 #sectors-sort .form-check-label:hover,
-#sector-sort  .form-check-label:hover { filter: brightness(1.04); }
+#sector-sort  .form-check-label:hover { color: var(--text); }
 
 #sectors-sort .form-check-input:checked + .form-check-label {
-  background: linear-gradient(180deg, rgba(13,110,253,0.28), rgba(13,110,253,0.12)) !important;
-  border-color: rgba(13,110,253,0.80) !important;
-  color: rgba(255,255,255,0.96) !important;
-  box-shadow: 0 0 0 1px rgba(13,110,253,0.35), 0 0 18px rgba(13,110,253,0.35) !important;
+  background: linear-gradient(180deg, rgba(13,110,253,0.25), rgba(13,110,253,0.10)) !important;
+  border-color: rgba(13,110,253,0.75) !important;
+  color: var(--text) !important;
+  box-shadow: 0 0 12px rgba(13,110,253,0.30) !important;
 }
 #sector-sort .form-check-input:checked + .form-check-label {
-  background: linear-gradient(180deg, rgba(111,66,193,0.32), rgba(111,66,193,0.14)) !important;
-  border-color: rgba(111,66,193,0.85) !important;
-  color: rgba(255,255,255,0.96) !important;
-  box-shadow: 0 0 0 1px rgba(111,66,193,0.40), 0 0 18px rgba(111,66,193,0.40) !important;
+  background: linear-gradient(180deg, rgba(111,66,193,0.28), rgba(111,66,193,0.12)) !important;
+  border-color: rgba(111,66,193,0.80) !important;
+  color: var(--text) !important;
+  box-shadow: 0 0 12px rgba(111,66,193,0.30) !important;
+}
+
+@media (max-width: 520px) {
+  #sectors-sort, #sector-sort { padding: 2px 3px !important; gap: 4px !important; }
+  #sectors-sort .form-check-label, #sector-sort .form-check-label { padding: 4px 8px !important; font-size: 9.5px !important; }
 }
 
 /* ==========================================================================
-   10) SECTOR TITLE (gold in dark, plain in light)
-========================================================================== */
-.sector-title {
-  position: relative;
-  display: inline-block;
-  margin: 0;
-  padding: 10px 16px 12px;
-  font-size: 28px;
-  line-height: 1.15;
-  border-radius: 16px;
-  border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--text) 5%, transparent);
-  box-shadow: 0 14px 32px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.06);
-
-  font-weight: 950;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-
-  color: transparent;
-  background-image: var(--gold-text);
-  -webkit-background-clip: text;
-  background-clip: text;
-}
-
-html[data-theme="light"] .sector-title {
-  background-image: none;
-  color: var(--text);
-  -webkit-background-clip: border-box;
-  background-clip: border-box;
-}
-
-/* ==========================================================================
-   11) OPENINTEREST (OI) — Premium cards & movers
+   10) OPEN INTEREST (OI) MOVERS & CARDS
 ========================================================================== */
 .page-wrap.oi-topbar,
 .page-wrap.oi-shell { max-width: calc(100vw - 24px) !important; }
@@ -1205,13 +1270,13 @@ html[data-theme="light"] .sector-title {
   font-size: 11px;
   letter-spacing: .28em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--muted) 90%, transparent);
+  color: var(--muted);
   font-weight: 950;
 }
 .oi-kdot {
   width: 8px; height: 8px; border-radius: 999px;
-  background: color-mix(in srgb, var(--text) 70%, transparent);
-  box-shadow: 0 0 0 6px color-mix(in srgb, var(--text) 6%, transparent), 0 0 14px color-mix(in srgb, var(--text) 14%, transparent);
+  background: var(--text);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--text) 10%, transparent);
 }
 
 .oi-title {
@@ -1239,20 +1304,20 @@ html[data-theme="light"] .sector-title {
 .oi-live-left { display: flex; gap: 10px; align-items: flex-start; min-width: 0; flex: 1; }
 .oi-dot {
   width: 10px; height: 10px; border-radius: 999px;
-  background: color-mix(in srgb, var(--text) 50%, transparent);
-  box-shadow: 0 0 0 6px color-mix(in srgb, var(--text) 6%, transparent), 0 10px 22px rgba(0,0,0,0.18);
+  background: var(--muted);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--muted) 15%, transparent);
   margin-top: 3px;
   flex: 0 0 auto;
 }
-.oi-dot.ok  { background: var(--good); box-shadow: 0 0 0 6px color-mix(in srgb, var(--good) 10%, transparent), 0 10px 22px rgba(0,0,0,0.18); }
-.oi-dot.err { background: var(--bad);  box-shadow: 0 0 0 6px color-mix(in srgb, var(--bad) 10%, transparent), 0 10px 22px rgba(0,0,0,0.18); }
+.oi-dot.ok  { background: var(--good); box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 20%, transparent); }
+.oi-dot.err { background: var(--bad);  box-shadow: 0 0 0 4px color-mix(in srgb, var(--bad) 20%, transparent); }
 
 .oi-live-text { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
 .oi-status { font-weight: 950; font-size: 12px; letter-spacing: 0.25px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .oi-miniStats {
   display: flex; flex-wrap: wrap; gap: 8px 10px;
-  color: color-mix(in srgb, var(--muted) 90%, transparent);
+  color: var(--muted);
   font-size: 12px;
   font-weight: 850;
 }
@@ -1289,7 +1354,7 @@ html[data-theme="light"] .sector-title {
   .oi-live { min-width: unset; width: 100%; }
 }
 
-/* --- Movers: AgGrid-like tables (right aligned numeric) --- */
+/* Movers Tables */
 #moversGainers,
 #moversLosers {
   height: calc(100vh - 260px);
@@ -1319,7 +1384,7 @@ html[data-theme="light"] .sector-title {
   border-collapse: collapse !important;
   table-layout: fixed !important;
   min-width: 980px !important;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif !important;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
 }
 
 #moversGainers table.oi-movers-table thead th,
@@ -1354,7 +1419,7 @@ html[data-theme="light"] .sector-title {
   height: 54px;
   padding: 12px 10px !important;
   border-bottom: 1px solid var(--border2) !important;
-  color: color-mix(in srgb, var(--text) 92%, transparent);
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1370,7 +1435,7 @@ html[data-theme="light"] .sector-title {
 #moversGainers table.oi-movers-table tbody tr:hover,
 #moversLosers  table.oi-movers-table tbody tr:hover {
   background: color-mix(in srgb, var(--text) 5%, transparent);
-  outline: 1px solid rgba(30,144,255,0.70);
+  outline: 1px solid color-mix(in srgb, var(--text) 20%, transparent);
   outline-offset: -1px;
 }
 
@@ -1398,12 +1463,12 @@ html[data-theme="light"] .sector-title {
 }
 
 /* ==========================================================================
-   12) MODALS / POPUPS
+   11) MODALS & OVERLAYS
 ========================================================================== */
 .tt-modal-backdrop.modal-backdrop.show {
   background: var(--modal-backdrop) !important;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .tt-modal .modal-dialog,
@@ -1428,7 +1493,7 @@ html[data-theme="light"] .sector-title {
   font-size: 13px !important;
   padding: 8px 16px !important;
   border-radius: 10px !important;
-  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent) !important;
+  border: 1px solid var(--border) !important;
   background: color-mix(in srgb, var(--text) 6%, transparent) !important;
   color: var(--text) !important;
   cursor: pointer;
@@ -1436,9 +1501,7 @@ html[data-theme="light"] .sector-title {
 }
 .tt-modal-close-btn:hover { transform: scale(1.04); background: color-mix(in srgb, var(--text) 10%, transparent) !important; }
 
-/* ==========================================================================
-   13) LOGIN OVERLAY
-========================================================================== */
+/* Login Overlay */
 .blurred { filter: blur(8px); pointer-events: none; user-select: none; }
 
 .login-overlay {
@@ -1449,14 +1512,15 @@ html[data-theme="light"] .sector-title {
   align-items: center;
   justify-content: center;
   background: color-mix(in srgb, #000 55%, transparent);
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
-.login-card { width: min(420px, 92vw); padding: 18px; }
-.login-msg { min-height: 20px; color: color-mix(in srgb, var(--bad) 80%, #ff6b6b); font-size: 0.95rem; }
+.login-card { width: min(420px, 92vw); padding: 22px; }
+.login-msg { min-height: 20px; color: var(--bad); font-size: 0.95rem; }
 
 /* ==========================================================================
-   14) PLOTLY MARKET HEATMAP
+   12) HEATMAP & RESPONSIVE
 ========================================================================== */
 #market-heatmap,
 #market-heatmap .js-plotly-plot,
@@ -1465,11 +1529,9 @@ html[data-theme="light"] .sector-title {
   background: var(--heatmap-bg) !important;
   background-color: var(--heatmap-bg) !important;
 }
+#market-heatmap .bglayer rect.bg,
 #market-heatmap .main-svg .bg { fill: var(--heatmap-bg) !important; }
 
-/* ==========================================================================
-   15) RESPONSIVE
-========================================================================== */
 @media (max-width: 860px) {
   .dial-arc-wrap { --dial-size: 270px; }
   .dial-title { font-size: 28px; }
@@ -1479,247 +1541,5 @@ html[data-theme="light"] .sector-title {
 @media (max-width: 520px) {
   .top-tab { padding: 6px 12px; font-size: 10.5px; }
   .stat-chip { padding: 6px 10px; font-size: 10px; }
-}
-
-/* ================================
-   THEME TOGGLE (Bootstrap Icons)
-================================ */
-.theme-toggle{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  width: 38px;
-  height: 38px;
-  border-radius: 999px;
-
-  border: 1px solid var(--border);
-  background: rgba(255,255,255,0.06);
-  box-shadow: 0 10px 22px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.10);
-
-  cursor:pointer;
-  user-select:none;
-  -webkit-tap-highlight-color: transparent;
-  transition: transform .12s ease, filter .12s ease, background .18s ease, border-color .18s ease;
-}
-
-.theme-toggle:hover{ transform: translateY(-1px); filter: brightness(1.05); }
-.theme-toggle:active{ transform: translateY(0) scale(0.98); }
-
-.theme-toggle .bi{
-  font-size: 18px;
-  line-height: 1;
-  color: var(--text);
-  opacity: 0.92;
-}
-
-/* Dark (default): show SUN */
-.theme-toggle .icon-sun{ display:inline; }
-.theme-toggle .icon-moon{ display:none; }
-
-/* Light: show MOON */
-html[data-theme="light"] .theme-toggle .icon-sun{ display:none; }
-html[data-theme="light"] .theme-toggle .icon-moon{ display:inline; }
-
-/* ==========================================
-   COMPACT: Sector sort segmented control
-   ========================================== */
-#sectors-sort{
-  padding: 3px 5px !important;
-  gap: 6px !important;
-  border-radius: 999px !important;
-  box-shadow: 0 10px 24px rgba(0,0,0,0.35) !important;
-}
-
-#sectors-sort .form-check-label{
-  padding: 5px 10px !important;
-  font-size: 10px !important;
-  letter-spacing: 0.04em !important;   /* reduces overall width a lot */
-  border-radius: 999px !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06),
-              0 6px 14px rgba(0,0,0,0.28) !important;
-}
-
-/* optional: even tighter on small screens (desktop-only area) */
-@media (max-width: 1200px){
-  #sectors-sort{ padding: 2px 4px !important; gap: 5px !important; }
-  #sectors-sort .form-check-label{ padding: 4px 8px !important; font-size: 9.5px !important; }
-}
-
-/* ==========================================
-   SECTORS title pill — compact like Top 15 headings
-========================================== */
-.page-title.page-title--pill{
-  /* compact height */
-  padding: 11px 16px !important;
-  border-radius: 999px !important;
-
-  /* match Top-15 heading typography */
-  font-size: 11px !important;
-  font-weight: 900 !important;
-  letter-spacing: 0.18em !important;
-  text-transform: uppercase !important;
-  line-height: 1 !important;
-
-  /* prevent H4 defaults from adding height */
-  margin: 0 !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 10px !important;
-
-  border: 1px solid var(--border) !important;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--text) 6%, transparent),
-    color-mix(in srgb, var(--text) 2%, transparent)
-  ) !important;
-
-  box-shadow:
-    0 12px 28px rgba(0,0,0,0.12),
-    inset 0 1px 0 rgba(255,255,255,0.10) !important;
-
-  color: color-mix(in srgb, var(--muted) 92%, transparent) !important;
-}
-
-/* dot size like your h6 headings */
-.page-title.page-title--pill::before{
-  content:"";
-  width: 6px !important;
-  height: 6px !important;
-  border-radius: 999px !important;
-  background: var(--text) !important;
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--text) 8%, transparent) !important;
-  flex: 0 0 auto;
-}
-
-/* Light mode: slightly crisper */
-html[data-theme="light"] .page-title.page-title--pill{
-  box-shadow: 0 10px 24px rgba(15,23,42,0.10),
-              inset 0 1px 0 rgba(255,255,255,0.85) !important;
-  color: rgba(51,65,85,0.88) !important;
-}
-html[data-theme="light"] .page-title.page-title--pill::before{
-  background: rgba(15,23,42,0.92) !important;
-  box-shadow: 0 0 0 4px rgba(15,23,42,0.08) !important;
-}
-
-/* ==========================================
-   COMPACT: Sort segmented controls (smaller)
-========================================== */
-#sectors-sort,
-#sector-sort{
-  padding: 2px 4px !important;
-  gap: 6px !important;
-  border-radius: 999px !important;
-}
-
-#sectors-sort .form-check-label,
-#sector-sort  .form-check-label{
-  padding: 4px 10px !important;     /* height */
-  font-size: 10px !important;       /* text size */
-  letter-spacing: 0.10em !important;/* reduces width */
-  font-weight: 900 !important;
-  border-radius: 999px !important;
-}
-
-/* even tighter on very small screens */
-@media (max-width: 520px){
-  #sectors-sort,
-  #sector-sort{
-    padding: 2px 3px !important;
-    gap: 5px !important;
-  }
-  #sectors-sort .form-check-label,
-  #sector-sort  .form-check-label{
-    padding: 3px 8px !important;
-    font-size: 9.5px !important;
-    letter-spacing: 0.08em !important;
-  }
-  
-}
-
-
-
-/* ===========================================
-   AG GRID: make our variables win everywhere
-   (fixes Render prod load order issues)
-=========================================== */
-html .ag-theme-alpine-dark{
-  --ag-foreground-color: var(--text) !important;
-  --ag-secondary-foreground-color: var(--muted) !important;
-
-  --ag-background-color: transparent !important;
-  --ag-border-color: var(--border2) !important;
-  --ag-row-border-color: var(--border2) !important;
-
-  --ag-header-foreground-color: var(--text) !important;
-  --ag-header-background-color: var(--card-hd-bg) !important;
-}
-
-/* Row colors per theme (avoid color-mix to be extra stable) */
-html[data-theme="light"] .ag-theme-alpine-dark{
-  --ag-odd-row-background-color: rgba(15,23,42,0.03) !important;
-  --ag-row-hover-color: rgba(15,23,42,0.06) !important;
-}
-
-html[data-theme="dark"] .ag-theme-alpine-dark{
-  --ag-odd-row-background-color: rgba(255,255,255,0.03) !important;
-  --ag-row-hover-color: rgba(255,255,255,0.06) !important;
-}
-
-html .ag-theme-alpine-dark .ag-root-wrapper{
-  background: var(--card-bg) !important;
-}
-
-html .ag-theme-alpine-dark .ag-header{
-  background: var(--card-hd-bg) !important;
-}
-
-/* Top 15 headings: color the dot */
-.page-wrap h6.tt-top15-gainers::before{
-  background: var(--good) !important;
-  box-shadow:
-    0 0 0 4px color-mix(in srgb, var(--good) 18%, transparent),
-    0 0 10px color-mix(in srgb, var(--good) 35%, transparent) !important;
-}
-
-.page-wrap h6.tt-top15-losers::before{
-  background: var(--bad) !important;
-  box-shadow:
-    0 0 0 4px color-mix(in srgb, var(--bad) 18%, transparent),
-    0 0 10px color-mix(in srgb, var(--bad) 35%, transparent) !important;
-}
-
-/* ===== FIX: green (pos) bars going out of the track ===== */
-
-.sector-hist-track{
-  position: relative;
-  overflow: hidden;      /* clips sheen + any overflow */
-  --zero: 50%;           /* fallback */
-}
-
-/* Positive bars grow UP from the dynamic zero line */
-.sector-hist-bar.pos{
-  bottom: calc(100% - var(--zero, 50%)) !important; /* was 50% */
-  top: auto !important;
-  max-height: var(--zero, 50%);                     /* safety cap */
-}
-
-/* Negative bars grow DOWN from the dynamic zero line */
-.sector-hist-bar.neg{
-  top: var(--zero, 50%) !important;                 /* was 50% */
-  bottom: auto !important;
-  max-height: calc(100% - var(--zero, 50%));        /* safety cap */
-}
-
-#market-heatmap,
-#market-heatmap .js-plotly-plot,
-#market-heatmap .plot-container,
-#market-heatmap .svg-container{
-  background: var(--heatmap-bg) !important;
-  background-color: var(--heatmap-bg) !important;
-}
-
-#market-heatmap .bglayer rect.bg{
-  fill: var(--heatmap-bg) !important;
 }
 

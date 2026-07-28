@@ -104,6 +104,10 @@ RECENCY_WINDOWS = [
     (1800, 0.25),   # 30 min
 ]
 
+# Rolling RVOL5 (last 5 minutes)
+RVOL5_WINDOW_SEC = int(os.getenv("RVOL5_WINDOW_SEC", "300"))          # 5 min
+COMPUTE_RVOL5_EVERY_SEC = float(os.getenv("COMPUTE_RVOL5_EVERY_SEC", "5.0"))
+import math
 
 # =============================================================================
 # KITE INIT
@@ -165,7 +169,7 @@ SECTOR_DEFINITIONS = {
         "BRITANNIA", "DABUR", "MARICO",
         "COLPAL", "GODREJCP",
         "TATACONSUM", "PATANJALI",
-        "UNITDSPR", "RADICO"
+        "UNITDSPR", "RADICO",
         "VBL", "DMART", "NYKAA",
         "ETERNAL", "SWIGGY",
         "TITAN", "TRENT", "VMM",
@@ -387,6 +391,119 @@ def _get_vol_at_cutoff(
         else:
             break
     return result
+
+def _get_cumvol_and_epoch_at_or_before(
+    series: List[Tuple[float, float, Optional[float]]],
+    cutoff_epoch: float,
+) -> Tuple[Optional[float], Optional[float]]:
+    """
+    Returns (base_epoch, base_cumvol) at or before cutoff_epoch.
+    If not available, returns (None, None).
+    """
+    base_t = None
+    base_v = None
+    for t, _p, v in series:
+        if float(t) <= float(cutoff_epoch):
+            if v is not None:
+                base_t = float(t)
+                base_v = float(v)
+        else:
+            break
+    return base_t, base_v
+
+def compute_rolling_rvol5_leaderboards(window_sec: int = RVOL5_WINDOW_SEC) -> Tuple[List[dict], List[dict], str]:
+    """
+    Rolling last-N-sec RVOL5:
+
+      Vol5  = cumvol(now) - cumvol(now - window)
+      Exp5  = avg_vol_20 * (tf_now - tf_then)    (paced expected fraction)
+      RVOL5 = Vol5 / Exp5
+
+    Returns (buy_rows, sell_rows, label)
+    """
+    now_ist   = datetime.now(IST)
+    now_epoch = time.time()
+
+    if not market_is_open_ist(now_ist):
+        return [], [], "RVOL5: market closed"
+
+    # Need HOT_HISTORY to look back 5 minutes
+    snap = _snapshot_state(include_hot=True)
+    hot  = snap.get("hot") or {}
+    daily_map = snap.get("daily") or {}
+
+    tf_now = _time_factor_ist_for_rvol(now_ist)
+
+    buy: List[dict] = []
+    sell: List[dict] = []
+
+    for sym in ALL_SYMBOLS:
+        tok = symbol_to_token.get(sym)
+        if not tok:
+            continue
+
+        ltp  = (snap.get("price") or {}).get(tok)
+        cvol = (snap.get("vol")   or {}).get(tok)
+        ohlc = (snap.get("ohlc")  or {}).get(tok) or {}
+        op   = ohlc.get("open")
+
+        if ltp is None or cvol is None or op is None:
+            continue
+
+        avg_vol_20 = (daily_map.get(tok) or {}).get("avg_vol_20")
+        if not avg_vol_20 or float(avg_vol_20) <= 0:
+            continue
+
+        series = hot.get(tok)
+        if not series or len(series) < 2:
+            continue
+
+        cutoff = now_epoch - float(window_sec)
+        base_t, base_v = _get_cumvol_and_epoch_at_or_before(series, cutoff)
+
+        # If we don't have enough history, use earliest cumvol we do have
+        if base_v is None or base_t is None:
+            bt = bv = None
+            for t, _p, v in series:
+                if v is not None:
+                    bt = float(t)
+                    bv = float(v)
+                    break
+            if bv is None or bt is None:
+                continue
+            base_t, base_v = bt, bv
+
+        vol5 = float(cvol) - float(base_v)
+        if vol5 < 0:
+            continue
+
+        eff_sec = max(1.0, min(float(window_sec), now_epoch - float(base_t)))
+        then_ist = now_ist - timedelta(seconds=eff_sec)
+
+        tf_then = _time_factor_ist_for_rvol(then_ist)
+        frac = max(1e-4, float(tf_now) - float(tf_then))
+        exp5 = float(avg_vol_20) * frac
+
+        rvol5 = float(vol5) / (float(exp5) + 1e-9)
+        pct_open = (float(ltp) - float(op)) / (float(op) + 1e-9) * 100.0
+
+        row = {
+            "Symbol": sym,
+            "%Change": round(float(pct_open), 2),
+            "RVOL5": round(float(rvol5), 2),   # numeric (sorting stays correct)
+            "Vol5": int(vol5),
+        }
+
+        if pct_open >= 0:
+            buy.append(row)
+        else:
+            sell.append(row)
+
+    buy.sort(key=lambda r: float(r["RVOL5"]), reverse=True)
+    sell.sort(key=lambda r: float(r["RVOL5"]), reverse=True)
+
+    label = f"RVOL5 rolling {int(window_sec/60)}m • {now_ist.strftime('%H:%M:%S')}"
+    return buy[:15], sell[:15], label
 
 
 def _compute_recency_factors(
@@ -967,7 +1084,16 @@ CACHE: Dict[str, Any] = {
     "heatmap_rows" : [],
     "sentiment"    : {"adv": 0, "dec": 0, "unch": 0, "total": 0, "score": 0.0, "label": "NEUTRAL"},
     "pcr"          : None,
+
+    # --- RVOL5 (true last completed 5-min bucket) ---
+    "rvol5_buy"    : [],
+    "rvol5_sell"   : [],
+    "rvol5_label"  : "Waiting 5-min bucket…",
+
     "updated"      : {"core": 0.0, "hot": 0.0, "pcr": 0.0},
+        "rvol5_buy"   : [],
+    "rvol5_sell"  : [],
+    "rvol5_label" : "RVOL5: collecting…",
 }
 
 
@@ -1005,6 +1131,179 @@ def _get_live_or_eod_state_from_snap(token: int, snap: Dict[str, Any]) -> Option
 
     ohlc_eod = {"open": e["open"], "high": e["high"], "low": e["low"], "close": e["prev_close"]}
     return float(e["close"]), float(e["volume"]), ohlc_eod
+
+# =============================================================================
+# RVOL5 (TRUE LAST COMPLETED 5-MIN BUCKET)
+# =============================================================================
+RVOL5_INITIALIZED = False
+RVOL5_LAST_SLOT   = -1  # 5-min slot index since 09:15
+RVOL5_BASE_CUMVOL: Dict[int, float] = {}  # token -> cumvol at last boundary
+
+
+def _mins_since_open_ist(now_ist: Optional[datetime] = None) -> int:
+    now_ist = now_ist or datetime.now(IST)
+    m_open = now_ist.replace(hour=9, minute=15, second=0, microsecond=0)
+    return int((now_ist - m_open).total_seconds() // 60)
+
+
+def _slot_5m_ist(now_ist: Optional[datetime] = None) -> int:
+    mins = _mins_since_open_ist(now_ist or datetime.now(IST))
+    if mins < 0:
+        return -1
+    return mins // 5
+
+
+def _expected_frac_between_minutes(m0: int, m1: int) -> float:
+    """
+    Expected fraction of day's volume in [m0, m1) minutes since 09:15.
+    Uses learned curve -> U-curve -> linear fallback.
+    """
+    total_mins = 375
+    m0 = max(0, min(total_mins, int(m0)))
+    m1 = max(0, min(total_mins, int(m1)))
+    if m1 <= m0:
+        return 0.0
+
+    with PACE_LOCK:
+        if PACE_CURVE_READY and len(PACE_CUM_FRAC_MIN) == total_mins:
+            cum = PACE_CUM_FRAC_MIN
+        elif U_CURVE_READY and len(U_CUM_FRAC) == total_mins:
+            cum = U_CUM_FRAC
+        else:
+            cum = [(i + 1) / total_mins for i in range(total_mins)]
+
+    end = float(cum[m1 - 1])
+    start = float(cum[m0 - 1]) if m0 > 0 else 0.0
+    return max(0.0, end - start)
+
+
+def _update_rvol5_cache_if_boundary():
+    """
+    Updates CACHE['rvol5_buy'/'rvol5_sell'] ONLY when a new 5-min slot begins.
+    Buckets are aligned from 09:15 IST: [09:15-09:20], [09:20-09:25], ...
+    """
+    global RVOL5_INITIALIZED, RVOL5_LAST_SLOT, RVOL5_BASE_CUMVOL
+
+    now_ist = datetime.now(IST)
+
+    # Only meaningful during market hours
+    if not market_is_open_ist(now_ist):
+        return
+
+    mins = _mins_since_open_ist(now_ist)
+    if mins < 0 or mins > 375:
+        return
+
+    # We only want to act on boundary minutes: 0,5,10,... since 09:15
+    if (mins % 5) != 0:
+        return
+
+    slot = mins // 5
+    if slot < 0:
+        return
+
+    # Snapshot (we need cumvol/open/ltp + avg_vol_20)
+    snap  = _snapshot_state(include_hot=False)
+    daily = snap.get("daily") or {}
+
+    # First time: initialize baseline exactly on a boundary, then wait for next boundary to compute a bucket
+    if not RVOL5_INITIALIZED:
+        RVOL5_BASE_CUMVOL = {}
+        for tok in TOKENS:
+            v = (snap.get("vol") or {}).get(tok)
+            if v is not None:
+                RVOL5_BASE_CUMVOL[tok] = float(v)
+        RVOL5_INITIALIZED = True
+        RVOL5_LAST_SLOT   = slot
+        with CACHE_LOCK:
+            CACHE["rvol5_label"] = "Collecting first 5-min bucket…"
+        return
+
+    # If same slot, nothing to do
+    if slot == RVOL5_LAST_SLOT:
+        return
+
+    # If we skipped slots (server paused, lag), resync baseline and skip (prevents wrong bucket math)
+    if RVOL5_LAST_SLOT >= 0 and slot != (RVOL5_LAST_SLOT + 1):
+        RVOL5_BASE_CUMVOL = {}
+        for tok in TOKENS:
+            v = (snap.get("vol") or {}).get(tok)
+            if v is not None:
+                RVOL5_BASE_CUMVOL[tok] = float(v)
+        RVOL5_LAST_SLOT = slot
+        with CACHE_LOCK:
+            CACHE["rvol5_label"] = "Resynced RVOL5 baseline…"
+        return
+
+    completed = slot - 1  # last fully completed 5-min bucket
+    if completed < 0:
+        RVOL5_LAST_SLOT = slot
+        return
+
+    m0 = completed * 5
+    m1 = m0 + 5
+    frac5 = _expected_frac_between_minutes(m0, m1)
+
+    # Label like "09:15–09:20"
+    m_open = now_ist.replace(hour=9, minute=15, second=0, microsecond=0)
+    start_t = (m_open + timedelta(minutes=m0)).strftime("%H:%M")
+    end_t   = (m_open + timedelta(minutes=m1)).strftime("%H:%M")
+    label   = f"RVOL5 Window: {start_t}–{end_t}"
+
+    buy_rows: List[dict] = []
+    sell_rows: List[dict] = []
+
+    for sym in ALL_SYMBOLS:
+        tok = symbol_to_token.get(sym)
+        if not tok:
+            continue
+
+        st_live = _get_live_or_eod_state_from_snap(tok, snap)
+        if not st_live:
+            continue
+
+        ltp, cumvol, ohlc = st_live
+        op = (ohlc or {}).get("open")
+        if op is None:
+            continue
+
+        cur_cum  = float(cumvol or 0.0)
+        prev_cum = float(RVOL5_BASE_CUMVOL.get(tok, cur_cum))
+        vol5 = max(0.0, cur_cum - prev_cum)
+
+        # Update baseline for next bucket immediately
+        RVOL5_BASE_CUMVOL[tok] = cur_cum
+
+        avg_vol_20 = (daily.get(tok) or {}).get("avg_vol_20")
+        if not avg_vol_20 or frac5 <= 0:
+            continue
+
+        exp5  = float(avg_vol_20) * float(frac5)
+        rvol5 = float(vol5) / (exp5 + 1e-9)
+
+        pct_open = (float(ltp) - float(op)) / float(op) * 100.0
+
+        row = {
+            "Symbol": sym,
+            "%Change": round(float(pct_open), 2),
+            "RVOL5": float(round(rvol5, 2)),   # keep numeric for correct sorting
+            "Vol5": int(vol5),
+        }
+
+        if pct_open >= 0:
+            buy_rows.append(row)
+        else:
+            sell_rows.append(row)
+
+    buy_rows.sort(key=lambda r: float(r["RVOL5"]), reverse=True)
+    sell_rows.sort(key=lambda r: float(r["RVOL5"]), reverse=True)
+
+    with CACHE_LOCK:
+        CACHE["rvol5_buy"]   = buy_rows[:15]
+        CACHE["rvol5_sell"]  = sell_rows[:15]
+        CACHE["rvol5_label"] = label
+
+    RVOL5_LAST_SLOT = slot
 
 
 def _time_factor_ist_for_rvol(now_ist: Optional[datetime] = None) -> float:
@@ -1198,59 +1497,146 @@ def _compute_sector_aggregates_from_rr_with_daily(
     """
     Sector bars metrics:
       DirR = signed mean(DirR)
-      RVOLmNetSum = Σbuy RVOLm - Σsell RVOLm
-      RVOLmNetMean = RVOLmNetSum / N
+
+      RVOLm...   = paced intraday RVOLm (existing)
+      RVOL5...   = rolling last-5-min RVOL (NEW)
+
+    NetSum  = Σbuy - Σsell
+    NetMean = NetSum / N
     """
-    tf  = _time_factor_ist_for_rvol(datetime.now(IST))
+    tf_day  = _time_factor_ist_for_rvol(datetime.now(IST))
     out: Dict[str, Dict[str, float]] = {}
+
+    # --- RVOL5 setup (NEW) ---
+    now_ist   = datetime.now(IST)
+    now_epoch = time.time()
+    want_rvol5 = market_is_open_ist(now_ist)
+
+    rvol5_window_sec = 300.0
+    cutoff_epoch = now_epoch - rvol5_window_sec
+    tf_now = _time_factor_ist_for_rvol(now_ist)
+
+    def _cumvol_at_or_before(series, cutoff: float):
+        base_t = None
+        base_v = None
+        for t, _p, v in series:
+            if float(t) <= float(cutoff):
+                if v is not None:
+                    base_t = float(t)
+                    base_v = float(v)
+            else:
+                break
+        if base_v is not None:
+            return base_t, base_v
+        # fallback: earliest cumvol
+        for t, _p, v in series:
+            if v is not None:
+                return float(t), float(v)
+        return None, None
+
+    # snapshot HOT_HISTORY once (avoid lock per symbol)
+    hot_snap = {}
+    if want_rvol5:
+        with LOCK:
+            for tok in rr_by_tok.keys():
+                dq = HOT_HISTORY.get(tok)
+                if dq:
+                    hot_snap[tok] = list(dq)
 
     for sector, syms in SECTOR_DEFINITIONS.items():
         dirr_vals: List[float] = []
+
+        # --- paced day RVOLm (existing) ---
         buy_sum = sell_sum = 0.0
         buy_n   = sell_n   = 0
+
+        # --- rolling RVOL5 (NEW) ---
+        buy5_sum = sell5_sum = 0.0
+        buy5_n   = sell5_n   = 0
 
         for s in syms:
             tok = symbol_to_token.get(s)
             if not tok:
                 continue
+
             rr = rr_by_tok.get(tok)
             if not rr:
                 continue
 
-            dirr_vals.append(float(rr["dirr"]))
+            dirr_vals.append(float(rr.get("dirr") or 0.0))
 
-            st         = daily_map.get(tok) or {}
+            st = daily_map.get(tok) or {}
             avg_vol_20 = st.get("avg_vol_20")
             vol_today  = rr.get("vol_today")
             pct_open   = rr.get("pct_open")
 
+            if avg_vol_20 is None or vol_today is None or pct_open is None:
+                continue
+
             try:
-                if pct_open is None or avg_vol_20 is None or vol_today is None:
-                    continue
-                if float(avg_vol_20) <= 0:
+                av = float(avg_vol_20)
+                if av <= 0:
                     continue
 
-                expected = float(avg_vol_20) * float(tf)
-                rvolm    = float(vol_today) / (expected + 1e-9)
+                # -------------------------
+                # RVOLm (paced intraday)
+                # -------------------------
+                expected = av * float(tf_day)
+                rvolm = float(vol_today) / (expected + 1e-9)
 
                 if float(pct_open) >= 0:
-                    buy_sum  += rvolm
-                    buy_n    += 1
+                    buy_sum += rvolm
+                    buy_n   += 1
                 else:
                     sell_sum += rvolm
                     sell_n   += 1
+
+                # -------------------------
+                # RVOL5 (rolling 5-min) NEW
+                # -------------------------
+                if want_rvol5:
+                    series = hot_snap.get(tok)
+                    if series and len(series) >= 2:
+                        base_t, base_v = _cumvol_at_or_before(series, cutoff_epoch)
+                        if base_t is not None and base_v is not None:
+                            vol5 = float(vol_today) - float(base_v)
+                            if vol5 >= 0:
+                                eff_sec = max(5.0, min(rvol5_window_sec, now_epoch - float(base_t)))
+                                then_ist = now_ist - timedelta(seconds=eff_sec)
+                                tf_then = _time_factor_ist_for_rvol(then_ist)
+
+                                frac = max(1e-4, float(tf_now) - float(tf_then))
+                                exp5 = av * frac
+                                rvol5 = float(vol5) / (float(exp5) + 1e-9)
+
+                                if float(pct_open) >= 0:
+                                    buy5_sum += rvol5
+                                    buy5_n   += 1
+                                else:
+                                    sell5_sum += rvol5
+                                    sell5_n   += 1
+
             except Exception:
                 continue
 
+        # -------- aggregate outputs --------
         n_total    = buy_n + sell_n
         dirr_mean  = (sum(dirr_vals) / len(dirr_vals)) if dirr_vals else 0.0
+
         net_sum    = float(buy_sum  - sell_sum)
         gross_sum  = float(buy_sum  + sell_sum)
         net_mean   = float(net_sum  / n_total) if n_total > 0 else 0.0
         gross_mean = float(gross_sum / n_total) if n_total > 0 else 0.0
 
+        n5_total    = buy5_n + sell5_n
+        net5_sum    = float(buy5_sum - sell5_sum)
+        gross5_sum  = float(buy5_sum + sell5_sum)
+        net5_mean   = float(net5_sum / n5_total) if n5_total > 0 else 0.0
+        gross5_mean = float(gross5_sum / n5_total) if n5_total > 0 else 0.0
+
         out[sector] = {
             "DirR"          : float(dirr_mean),
+
             "RVOLmBuySum"   : float(buy_sum),
             "RVOLmSellSum"  : float(sell_sum),
             "RVOLmNetSum"   : float(net_sum),
@@ -1260,6 +1646,17 @@ def _compute_sector_aggregates_from_rr_with_daily(
             "N"             : float(n_total),
             "BuyN"          : float(buy_n),
             "SellN"         : float(sell_n),
+
+            # NEW rolling RVOL5 sector metrics
+            "RVOL5BuySum"   : float(buy5_sum),
+            "RVOL5SellSum"  : float(sell5_sum),
+            "RVOL5NetSum"   : float(net5_sum),
+            "RVOL5GrossSum" : float(gross5_sum),
+            "RVOL5NetMean"  : float(net5_mean),
+            "RVOL5GrossMean": float(gross5_mean),
+            "N5"            : float(n5_total),
+            "BuyN5"         : float(buy5_n),
+            "SellN5"        : float(sell5_n),
         }
 
     return out
@@ -1334,8 +1731,41 @@ def start_compute_loop_once():
         return
     _compute_started = True
 
+    # Rolling RVOL5 settings
+    RVOL5_WINDOW_SEC = 300          # last 5 minutes
+    COMPUTE_RVOL5_EVERY_SEC = 5.0   # recompute cadence
+
+    def _cumvol_at_or_before(series, cutoff_epoch: float):
+        """
+        series: list[(epoch, ltp, cumvol)]
+        Return (base_epoch, base_cumvol) at or before cutoff.
+        If not available, fallback to earliest cumvol in series.
+        """
+        base_t = None
+        base_v = None
+        for t, _p, v in series:
+            if float(t) <= float(cutoff_epoch):
+                if v is not None:
+                    base_t = float(t)
+                    base_v = float(v)
+            else:
+                break
+
+        if base_v is not None:
+            return base_t, base_v
+
+        # fallback: earliest available cumvol
+        for t, _p, v in series:
+            if v is not None:
+                return float(t), float(v)
+
+        return None, None
+
     def _run():
-        last_core = last_hot = last_pcr = 0.0
+        last_core = 0.0
+        last_hot  = 0.0
+        last_pcr  = 0.0
+        last_rvol5 = 0.0
 
         while True:
             now = time.time()
@@ -1506,6 +1936,95 @@ def start_compute_loop_once():
                     log.exception("compute loop: PCR crashed")
                 last_pcr = now
 
+            # ---- ROLLING RVOL5 (LAST 5 MIN) ----
+            if (now - last_rvol5) >= COMPUTE_RVOL5_EVERY_SEC:
+                try:
+                    now_ist = datetime.now(IST)
+
+                    if not market_is_open_ist(now_ist):
+                        with CACHE_LOCK:
+                            CACHE["rvol5_buy"] = []
+                            CACHE["rvol5_sell"] = []
+                            CACHE["rvol5_label"] = "RVOL5: market closed"
+                    else:
+                        snap = _snapshot_state(include_hot=False)
+                        daily_map = snap.get("daily") or {}
+
+                        tf_now = _time_factor_ist_for_rvol(now_ist)
+                        cutoff_epoch = now - float(RVOL5_WINDOW_SEC)
+
+                        buy_rows: List[dict] = []
+                        sell_rows: List[dict] = []
+
+                        for sym in ALL_SYMBOLS:
+                            tok = symbol_to_token.get(sym)
+                            if not tok:
+                                continue
+
+                            ltp  = (snap.get("price") or {}).get(tok)
+                            cvol = (snap.get("vol")   or {}).get(tok)
+                            ohlc = (snap.get("ohlc")  or {}).get(tok) or {}
+                            op   = ohlc.get("open")
+
+                            if ltp is None or cvol is None or op is None:
+                                continue
+
+                            st20 = daily_map.get(tok) or {}
+                            avg_vol_20 = st20.get("avg_vol_20")
+                            if not avg_vol_20 or float(avg_vol_20) <= 0:
+                                continue
+
+                            # Use HOT_HISTORY to get cumvol ~5 minutes ago
+                            with LOCK:
+                                dq = HOT_HISTORY.get(tok)
+                                series = list(dq) if dq else None
+
+                            if not series or len(series) < 2:
+                                continue
+
+                            base_t, base_v = _cumvol_at_or_before(series, cutoff_epoch)
+                            if base_t is None or base_v is None:
+                                continue
+
+                            vol5 = float(cvol) - float(base_v)
+                            if vol5 < 0:
+                                continue
+
+                            eff_sec = max(5.0, min(float(RVOL5_WINDOW_SEC), now - float(base_t)))
+                            then_ist = now_ist - timedelta(seconds=eff_sec)
+
+                            tf_then = _time_factor_ist_for_rvol(then_ist)
+                            frac = max(1e-4, float(tf_now) - float(tf_then))  # expected fraction in this rolling window
+
+                            exp5 = float(avg_vol_20) * float(frac)
+                            rvol5 = float(vol5) / (float(exp5) + 1e-9)
+
+                            pct_open = (float(ltp) - float(op)) / (float(op) + 1e-9) * 100.0
+
+                            row = {
+                                "Symbol": sym,
+                                "%Change": round(float(pct_open), 2),
+                                "RVOL5": round(float(rvol5), 2),   # numeric -> sorts properly
+                                "Vol5": int(vol5),
+                            }
+
+                            if pct_open >= 0:
+                                buy_rows.append(row)
+                            else:
+                                sell_rows.append(row)
+
+                        buy_rows.sort(key=lambda r: float(r["RVOL5"]), reverse=True)
+                        sell_rows.sort(key=lambda r: float(r["RVOL5"]), reverse=True)
+
+                        with CACHE_LOCK:
+                            CACHE["rvol5_buy"] = buy_rows[:15]
+                            CACHE["rvol5_sell"] = sell_rows[:15]
+                            CACHE["rvol5_label"] = f"RVOL5 rolling 5m • {now_ist.strftime('%H:%M:%S')}"
+
+                except Exception:
+                    log.exception("compute loop: RVOL5 crashed")
+                last_rvol5 = now
+
             time.sleep(COMPUTE_SLEEP_SEC)
 
     threading.Thread(target=_run, daemon=True).start()
@@ -1652,14 +2171,18 @@ def _sector_modal_coldefs_desktop():
             "cellRenderer": "Pct2Cell",
             "cellClassRules": {"cell-pos": "params.value > 0", "cell-neg": "params.value < 0"},
         },
+
+        # --- REPLACED Gap% with RVOLm5 (rolling last-5-min RVOL) ---
         {
-            "field": "Gap%",
-            "headerName": "GAP %",
-            "minWidth": 100,
+            "field": "RVOL5",
+            "headerName": "RVOLm5",
+            "minWidth": 110,
             "flex": 1,
             "type": "rightAligned",
-            "cellRenderer": "Pct2Cell",
+            "valueFormatter": {"function": "params.value == null ? '—' : (params.value.toFixed(1) + 'x')"},
         },
+
+        # keep paced day RVOLm
         {
             "field": "RVOLm",
             "headerName": "RVOLm",
@@ -1706,16 +2229,17 @@ def _sector_modal_coldefs_mobile():
             "cellRenderer": "Pct2Cell",
             "cellClassRules": {"cell-pos": "params.value > 0", "cell-neg": "params.value < 0"},
         },
+
+        # show RVOLm5 on mobile
         {
-            "field": "RVOLm",
-            "headerName": "RVOLm",
+            "field": "RVOL5",
+            "headerName": "RVOLm5",
             "minWidth": 76,
             "flex": 1,
             "type": "rightAligned",
-            "cellRenderer": "Num2Cell",
+            "valueFormatter": {"function": "params.value == null ? '—' : (params.value.toFixed(1) + 'x')"},
         },
     ]
-
 
 def sector_modal_component():
     grid_opts_desktop = {
@@ -1938,6 +2462,7 @@ def sectors_page():
                     options=[
                         {"label": "Sort: RVOLm",      "value": "RVOLm"},
                         {"label": "Sort: RVOLm Mean", "value": "RVOLmMean"},
+                         {"label": "Sort: RVOLm5 Mean",  "value": "RVOL5"}, 
                         {"label": "Sort: Momentum",   "value": "DirR"},
                     ],
                     value="DirR",
@@ -1954,6 +2479,7 @@ def sectors_page():
                     options=[
                         {"label": "RVOLm",      "value": "RVOLm"},
                         {"label": "RVOLm Mean", "value": "RVOLmMean"},
+                          {"label": "RVOLm5 Mean",  "value": "RVOL5"}, 
                         {"label": "Momentum",   "value": "DirR"},
                     ],
                     value="DirR",
@@ -2103,21 +2629,52 @@ def top15_buy_sell_rvolm_rows(n: int = 15):
 
 def volm_page():
     cols = [
-        {"colId": "stock", "field": "Symbol",  "headerName": "STOCK",  "cellRenderer": "SymbolCell",
-         "minWidth": 140, "maxWidth": 170, "suppressSizeToFit": True,
-         "headerClass": "h-left", "cellClass": "c-left"},
-        {"colId": "pct",   "field": "%Change", "headerName": "%CHG",   "cellRenderer": "PctPill",
-         "minWidth": 140, "maxWidth": 150, "suppressSizeToFit": True,
-         "headerClass": "ag-right-aligned-header h-right",
-         "cellClass": "ag-right-aligned-cell cell-num c-right"},
-        {"colId": "rvolm", "field": "RVOLm",   "headerName": "RVOLm",  "cellRenderer": "Num2Cell",
-         "minWidth": 120, "maxWidth": 140, "suppressSizeToFit": True,
-         "headerClass": "ag-right-aligned-header h-right",
-         "cellClass": "ag-right-aligned-cell cell-num c-right"},
-        {"colId": "vol",   "field": "Vol",     "headerName": "VOLUME", "cellRenderer": "VolPill",
-         "minWidth": 150, "maxWidth": 190, "suppressSizeToFit": True,
-         "headerClass": "ag-right-aligned-header h-right",
-         "cellClass": "ag-right-aligned-cell cell-num c-right"},
+        {
+            "colId": "stock",
+            "field": "Symbol",
+            "headerName": "STOCK",
+            "cellRenderer": "SymbolCell",
+            "minWidth": 140,
+            "maxWidth": 170,
+            "suppressSizeToFit": True,
+            "headerClass": "h-left",
+            "cellClass": "c-left",
+        },
+        {
+            "colId": "pct",
+            "field": "%Change",
+            "headerName": "%CHG",
+            "cellRenderer": "PctPill",
+            "minWidth": 140,
+            "maxWidth": 150,
+            "suppressSizeToFit": True,
+            "headerClass": "ag-right-aligned-header h-right",
+            "cellClass": "ag-right-aligned-cell cell-num c-right",
+        },
+        {
+            "colId": "rvol5",
+            "field": "RVOL5",
+            "headerName": "RVOL5",
+            # Show like 1.2x, 3.8x (still sorts numerically)
+            "valueFormatter": {"function": "params.value == null ? '—' : (params.value.toFixed(1) + 'x')"},
+            "minWidth": 120,
+            "maxWidth": 140,
+            "suppressSizeToFit": True,
+            "type": "rightAligned",
+            "headerClass": "ag-right-aligned-header h-right",
+            "cellClass": "ag-right-aligned-cell cell-num c-right",
+        },
+        {
+            "colId": "vol5",
+            "field": "Vol5",
+            "headerName": "VOL5",
+            "cellRenderer": "VolPill",
+            "minWidth": 150,
+            "maxWidth": 190,
+            "suppressSizeToFit": True,
+            "headerClass": "ag-right-aligned-header h-right",
+            "cellClass": "ag-right-aligned-cell cell-num c-right",
+        },
     ]
 
     grid_opts = {
@@ -2139,16 +2696,19 @@ def volm_page():
                         dcc.Link("← Back", href=BASE, className="stat-chip", style={"textDecoration": "none"}),
                         width="auto",
                     ),
-                    dbc.Col(html.H4("Volm (RVOLm)", className="page-title mb-0"), width=True),
+                    dbc.Col(html.H4("Volm (Rolling RVOL5)", className="page-title mb-0"), width=True),
                 ],
-                className="align-items-center g-2 mb-2",
+                className="align-items-center g-2 mb-1",
             ),
+
+            # rolling window label from cache
+            html.Div(id="rvol5-label", className="hint mb-2"),
 
             dbc.Row(
                 [
                     dbc.Col(
                         [
-                            html.H6("Top 15 BUY (by RVOLm)", className="mt-1"),
+                            html.H6("Top 15 BUY (by RVOL5)", className="mt-1"),
                             dag.AgGrid(
                                 id="volm-buy-grid",
                                 className="ag-theme-alpine-dark grid-wrap compact-grid",
@@ -2163,7 +2723,7 @@ def volm_page():
                     ),
                     dbc.Col(
                         [
-                            html.H6("Top 15 SELL (by RVOLm)", className="mt-1"),
+                            html.H6("Top 15 SELL (by RVOL5)", className="mt-1"),
                             dag.AgGrid(
                                 id="volm-sell-grid",
                                 className="ag-theme-alpine-dark grid-wrap compact-grid",
@@ -2182,7 +2742,6 @@ def volm_page():
         ],
         className="page-wrap",
     )
-
 
 # =============================================================================
 # DASH ROOT LAYOUT
@@ -2421,6 +2980,7 @@ def update_top_stats(_):
     return html.Div(chips, className="top-stats-wrap")
 
 
+
 @dash_app.callback(
     Output("sector-bars", "children"),
     Input("refresh_sectors", "n_intervals"),
@@ -2428,10 +2988,13 @@ def update_top_stats(_):
     Input("sectors-sort-dd", "value"),
 )
 def render_sector_bars(_n, sort_by_radio, sort_by_dd):
+    """
+    FIXED baseline (no auto shifting):
+      - zero line always centered (50%)
+      - symmetric scaling: |+x| == |-x| bar height
+    """
     try:
         trig = ctx.triggered_id
-
-        # Pick from the control that actually changed
         if trig == "sectors-sort":
             sort_by = sort_by_radio
         elif trig == "sectors-sort-dd":
@@ -2441,32 +3004,32 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd):
 
         sort_by = (sort_by or "DirR").strip()
 
-        # -----------------------------
-        # Metric selection
-        # -----------------------------
+        # Metric mapping
         if sort_by == "DirR":
             metric = "DirR"
+        elif sort_by == "RVOL5":
+            metric = "RVOL5NetMean"  
         elif sort_by == "RVOLmMean":
             metric = "RVOLmNetMean"
         else:
             metric = "RVOLmNetSum"
 
-        # -----------------------------
         # Load cached aggregates
-        # -----------------------------
         with CACHE_LOCK:
             agg = dict(CACHE.get("sector_agg") or {})
 
+        if not agg:
+            return html.Div("Loading sector bars…", className="hint")
+
         items = sorted(
             agg.items(),
-            key=lambda kv: float(kv[1].get(metric, 0.0) or 0.0),
+            key=lambda kv: float((kv[1] or {}).get(metric, 0.0) or 0.0),
             reverse=True,
         )
         if not items:
             return html.Div("Loading sector bars…", className="hint")
 
-        vals = [float(m.get(metric, 0.0) or 0.0) for _, m in items]
-        n = len(vals)
+        vals = [float(((m or {}).get(metric, 0.0)) or 0.0) for _, m in items]
 
         # -----------------------------
         # Helpers
@@ -2478,77 +3041,66 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd):
             i = max(0, min(len(sorted_list) - 1, i))
             return float(sorted_list[i])
 
-        def fmt_dec(x: float) -> str:
-            x = float(x)
-            if abs(x) < 5e-7:
-                x = 0.0
-            return f"{x:.2f}"
+        def cap_from_abs(abs_vals, q: float, min_cap: float, mul: float) -> float:
+            av = sorted(float(x) for x in abs_vals if x is not None and float(x) > 0)
+            if not av:
+                return float(min_cap)
+            raw = av[-1] if len(av) < 5 else pct(av, q)
+            return float(max(raw * mul, min_cap))
+
+        def soft01(x: float) -> float:
+            # soft saturation for nicer visuals; keeps sign symmetry
+            return 1.0 - math.exp(-max(0.0, float(x)))
 
         # -----------------------------
-        # Make UP/DOWN more visible:
-        # Asymmetric percentile caps (separate + and -)
+        # Split + tuning
         # -----------------------------
-        pos_abs = sorted([v for v in vals if v > 0])          # positive values
-        neg_abs = sorted([abs(v) for v in vals if v < 0])     # absolute of negative values
-        
-        if metric == "DirR":
-         pos_cap = max(pos_abs) if pos_abs else 0.30
-         neg_cap = max(neg_abs) if neg_abs else 0.30
+        pos_vals = [v for v in vals if v > 0]
+        neg_abs  = [abs(v) for v in vals if v < 0]
 
         if metric == "DirR":
-           CAP_Q   = 0.99   # was 0.82 (too aggressive)
-           CAP_MUL = 1.00
-           MIN_CAP = 0.05
-           GAMMA   = 0.85   # closer to linear so big differences show
+            CAP_Q, CAP_MUL, MIN_CAP = 0.92, 1.15, 0.03
+            GAMMA = 0.50
+            BAR_MIN_PX = 0.0
+            fmt_tick = lambda v: f"{float(v):+.1f}"
+            fmt_tip  = lambda v: f"{float(v):+.1f}"
         else:
-            CAP_Q   = 0.88
-            CAP_MUL = 1.20
-            MIN_CAP = 0.50
-            GAMMA   = 0.62
+            CAP_Q, CAP_MUL, MIN_CAP = 0.88, 1.20, 0.50
+            GAMMA = 0.65
+            BAR_MIN_PX = 4.0
+            fmt_tick = lambda v: f"{float(v):.2f}"
+            fmt_tip  = lambda v: f"{float(v):.2f}"
 
-        pos_cap = max(pct(pos_abs, CAP_Q) * CAP_MUL, MIN_CAP) if pos_abs else MIN_CAP
-        neg_cap = max(pct(neg_abs, CAP_Q) * CAP_MUL, MIN_CAP) if neg_abs else MIN_CAP
-        
-                # -----------------------------
-        # Display DirR as 1x,2x,3x...
-        # (only changes labels, not sorting/heights)
         # -----------------------------
-        if metric == "DirR":
-            X_MAX = 6.0  # strongest sector will be around ~6x (tweak if you want)
-            cap_abs = max(float(pos_cap), float(neg_cap), 1e-6)
-            x_unit = cap_abs / X_MAX  # 1x equals this DirR value
+        # Plot sizing
+        # -----------------------------
+        PLOT_H     = int(SECTOR_PLOT_H_PX)
+        LABEL_BAND = 28
+        TRACK_H    = max(160, PLOT_H - LABEL_BAND)
 
-            def fmt_tick(v: float) -> str:
-                return f"{(float(v) / x_unit):+.0f}x"
+        # -----------------------------
+        # Caps (robust) -> symmetric abs cap
+        # -----------------------------
+        pos_cap = cap_from_abs(pos_vals, CAP_Q, MIN_CAP, CAP_MUL)
+        neg_cap = cap_from_abs(neg_abs,  CAP_Q, MIN_CAP, CAP_MUL)
+        abs_cap = float(max(pos_cap, neg_cap, 1e-9))
 
-            def fmt_tip(v: float) -> str:
-                return f"{(float(v) / x_unit):+.0f}x"
-        else:
-            fmt_tick = fmt_dec
-            fmt_tip  = fmt_dec
+        # -----------------------------
+        # Fixed baseline (NO auto scaling)
+        # -----------------------------
+        zero_pct = 50.0
+        half_px  = max(0.0, (TRACK_H / 2.0) - 1.0)
 
-        # Axis bounds from caps (NOT from true max)
-        tick_max = float(pos_cap)
-        tick_min = -float(neg_cap)
-        axis_span = float(tick_max - tick_min) or 1.0
-
-        # Zero-line position in %
-        zero_pct = ((tick_max - 0.0) / axis_span) * 100.0
-        zero_pct = max(0.0, min(100.0, zero_pct))
-
-        plot_h = SECTOR_PLOT_H_PX
-        pos_px = plot_h * (zero_pct / 100.0)
-        neg_px = plot_h - pos_px
-
-        pos_dom = max(0.0, tick_max)
-        neg_dom = max(0.0, -tick_min)
-        eps = 1e-12
-
-        # Axis tick labels
-        ticks = [tick_max, tick_max / 2.0, 0.0, tick_min / 2.0, tick_min]
+        # -----------------------------
+        # Axis ticks (linear, symmetric)
+        # -----------------------------
+        ticks = [abs_cap, abs_cap / 2.0, 0.0, -abs_cap / 2.0, -abs_cap]
         axis_ticks = []
+        axis_span = 2.0 * abs_cap
+
         for tv in ticks:
-            top_pct = ((tick_max - float(tv)) / axis_span) * 100.0
+            # map value -> % from top (linear)
+            top_pct = ((abs_cap - float(tv)) / axis_span) * 100.0
             axis_ticks.append(
                 html.Div(
                     fmt_tick(tv),
@@ -2557,43 +3109,33 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd):
                 )
             )
 
-        axis = html.Div(axis_ticks, className="sector-hist-axis", style={"height": f"{plot_h}px"})
+        axis = html.Div(axis_ticks, className="sector-hist-axis", style={"height": f"{TRACK_H}px"})
         children = [axis, html.Div(className="sector-hist-zero-line")]
 
-        # Bigger minimum so “small” bars don’t look like dots
-        bar_min_px = 6.0
-
+        # -----------------------------
+        # Value -> bar pixels (symmetric)
+        # -----------------------------
         def to_px(val: float) -> float:
-            if val >= 0:
-                if pos_dom <= 0 or pos_px <= 0:
-                    return 0.0
-                x = val / (pos_dom + eps)  # 0..1
-                x = max(0.0, min(1.0, x))
-                x = x ** GAMMA
-                return max(0.0, min(pos_px, x * pos_px))
-            else:
-                if neg_dom <= 0 or neg_px <= 0:
-                    return 0.0
-                x = (-val) / (neg_dom + eps)  # 0..1
-                x = max(0.0, min(1.0, x))
-                x = x ** GAMMA
-                return max(0.0, min(neg_px, x * neg_px))
+            v = float(val)
+            if v == 0.0 or half_px <= 0:
+                return 0.0
 
+            x = abs(v) / abs_cap          # 0..1
+            y = soft01(x) ** float(GAMMA) # nice curve, symmetric
+            px = y * float(half_px)
+
+            if BAR_MIN_PX > 0 and 0.0 < px < BAR_MIN_PX:
+                px = BAR_MIN_PX
+
+            return float(max(0.0, min(px, half_px)))
+
+        # -----------------------------
+        # Render bars
+        # -----------------------------
         for sector, m in items:
-            val = float(m.get(metric, 0.0) or 0.0)
+            val  = float(((m or {}).get(metric, 0.0)) or 0.0)
             disp = sector.replace("_", " ").upper()
-            val_str = fmt_tip(val)
-
-            # Clip separately for + and -
-            clipped = (val > pos_cap) or (val < -neg_cap)
-            if val >= 0:
-                val_eff = min(val, pos_cap)
-            else:
-                val_eff = max(val, -neg_cap)
-
-            bar_px = to_px(val_eff)
-            if 0 < bar_px < bar_min_px:
-                bar_px = bar_min_px
+            bar_px = to_px(val)
 
             children.append(
                 dcc.Link(
@@ -2605,42 +3147,56 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd):
                             html.Div(
                                 [
                                     html.Div(disp, className="sector-hist-tip-name"),
-                                    html.Div(val_str, className="sector-hist-tip-val"),
+                                    html.Div(fmt_tip(val), className="sector-hist-tip-val"),
                                 ],
                                 className="sector-hist-tooltip",
                             ),
                             html.Div(
                                 [
                                     html.Div(
-                                        className=("sector-hist-bar pos" if val_eff >= 0 else "sector-hist-bar neg"),
-                                        style={"height": f"{bar_px:.2f}px"},
-                                    ),
-                                    # Optional cap marker (only if you added CSS)
-                                    html.Div(
-                                        className="sector-bar-cap",
-                                        style={"top": "6px"} if val_eff >= 0 else {"bottom": "6px"},
-                                    ) if clipped else None,
+                                        className=("sector-hist-bar pos" if val >= 0 else "sector-hist-bar neg"),
+                                        style={"height": f"{bar_px:.2f}px", "maxHeight": f"{half_px:.2f}px"},
+                                    )
                                 ],
                                 className="sector-hist-track",
                                 style={
-                                    "height": f"{plot_h}px",
+                                    "height": f"{TRACK_H}px",
                                     "overflow": "hidden",
+                                    "clipPath": "inset(0 round 18px)",
                                     "position": "relative",
-                                    "marginBottom": "16px",
                                 },
                             ),
-                            html.Div(disp, className="sector-hist-name", style={"marginTop": "4px"}),
+                            html.Div(
+                                disp,
+                                className="sector-hist-name",
+                                style={
+                                    "height": f"{LABEL_BAND}px",
+                                    "display": "flex",
+                                    "alignItems": "center",
+                                    "justifyContent": "center",
+                                    "position": "relative",
+                                    "zIndex": 5,
+                                    "marginTop": "6px",
+                                },
+                            ),
                         ],
                         className="sector-hist-col",
-                        title=f"{metric} {val_str}",
+                        style={"display": "flex", "flexDirection": "column", "alignItems": "center"},
+                        title=f"{metric} {val:+.4f}",
                     ),
                 )
             )
 
+        # Pass CSS vars used by your theme.css
         return html.Div(
             children,
             className="sector-hist-plot",
-            style={"--zero": f"{zero_pct:.2f}%", "--axisW": "68px"},
+            style={
+                "--zero": "50%",
+                "--axisW": "68px",
+                "--plotH": f"{TRACK_H}px",
+                "--labelH": f"{LABEL_BAND}px",
+            },
         )
 
     except Exception as e:
@@ -2651,14 +3207,39 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd):
             style={"color": "red", "padding": "20px", "fontSize": "14px"},
         )
 
-
 # =============================================================================
 # SECTOR MODAL
 # =============================================================================
 def sector_rows_sorted(sector: str, sort_by: str = "RFactor"):
+    RVOL5_WINDOW_SEC = 300  # rolling 5 minutes
+
+    def _cumvol_at_or_before(series: List[Tuple[float, float, Optional[float]]], cutoff_epoch: float):
+        base_t = None
+        base_v = None
+        for t, _p, v in series:
+            if float(t) <= float(cutoff_epoch):
+                if v is not None:
+                    base_t = float(t)
+                    base_v = float(v)
+            else:
+                break
+
+        if base_v is not None:
+            return base_t, base_v
+
+        # fallback: earliest cumvol in the deque (shorter effective window)
+        for t, _p, v in series:
+            if v is not None:
+                return float(t), float(v)
+
+        return None, None
+
     rows = []
-    tf   = _time_factor_ist_for_rvol(datetime.now(IST))
-    snap = _snapshot_state(include_hot=False)
+    now_ist   = datetime.now(IST)
+    now_epoch = time.time()
+
+    tf_now = _time_factor_ist_for_rvol(now_ist)
+    snap   = _snapshot_state(include_hot=False)
 
     for s in SECTOR_DEFINITIONS.get(sector, []):
         tok = symbol_to_token.get(s)
@@ -2670,29 +3251,64 @@ def sector_rows_sorted(sector: str, sort_by: str = "RFactor"):
             continue
 
         pct_open = float(rr["pct_open"])
-        gap_pct  = float(rr["gap_pct"])
         ltp      = float(rr["ltp"])
+        vol_today = float(rr["vol_today"])
 
-        st        = (snap.get("daily") or {}).get(tok) or {}
+        # paced day RVOLm (existing)
+        tf_day = _time_factor_ist_for_rvol(now_ist)
+        st = (snap.get("daily") or {}).get(tok) or {}
         avg_vol_20 = st.get("avg_vol_20")
-        vol_today  = rr.get("vol_today")
 
         rvolm = None
-        try:
-            if avg_vol_20 and vol_today is not None and float(avg_vol_20) > 0:
-                expected = float(avg_vol_20) * float(tf)
-                rvolm    = float(vol_today) / (expected + 1e-9)
-        except Exception:
-            rvolm = None
+        if avg_vol_20 is not None:
+            try:
+                av = float(avg_vol_20)
+                if av > 0:
+                    expected = av * float(tf_day)
+                    rvolm = float(vol_today) / (expected + 1e-9)
+            except Exception:
+                rvolm = None
+
+        # ---- NEW: rolling RVOLm5 (RVOL5) ----
+        rvol5 = None
+        if market_is_open_ist(now_ist) and avg_vol_20 is not None:
+            try:
+                av = float(avg_vol_20)
+                if av > 0:
+                    cutoff_epoch = now_epoch - float(RVOL5_WINDOW_SEC)
+
+                    with LOCK:
+                        dq = HOT_HISTORY.get(tok)
+                        series = list(dq) if dq else None
+
+                    if series and len(series) >= 2:
+                        base_t, base_v = _cumvol_at_or_before(series, cutoff_epoch)
+                        if base_t is not None and base_v is not None:
+                            vol5 = float(vol_today) - float(base_v)
+                            if vol5 >= 0:
+                                eff_sec = max(5.0, min(float(RVOL5_WINDOW_SEC), now_epoch - float(base_t)))
+                                then_ist = now_ist - timedelta(seconds=eff_sec)
+                                tf_then = _time_factor_ist_for_rvol(then_ist)
+
+                                frac = max(1e-4, float(tf_now) - float(tf_then))  # expected fraction in this window
+                                exp5 = av * frac
+                                rvol5 = float(vol5) / (float(exp5) + 1e-9)
+            except Exception:
+                rvol5 = None
 
         rows.append({
             "Symbol" : s,
             "Company": symbol_to_name.get(s, ""),
             "DirR"   : float(rr["dirr"]),
-            "Price"  : ltp,
-            "%Change": pct_open,
-            "Gap%"   : gap_pct,
-            "RVOLm"  : rvolm,
+            "Price"  : float(ltp),
+            "%Change": float(pct_open),
+
+            # NEW FIELD used by columnDefs:
+            "RVOL5"  : (float(rvol5) if rvol5 is not None else None),
+
+            # Keep RVOLm for desktop last column:
+            "RVOLm"  : (float(rvolm) if rvolm is not None else None),
+
             "RFactor": float(rr["rfactor"]),
         })
 
@@ -2700,7 +3316,9 @@ def sector_rows_sorted(sector: str, sort_by: str = "RFactor"):
         return []
 
     sb = (sort_by or "").strip().upper()
-    if sb in ("RVOL", "RVOLM"):
+    if sb in ("RVOL5", "RVOLM5", "RVOL_5"):
+        key = "RVOL5"
+    elif sb in ("RVOL", "RVOLM"):
         key = "RVOLm"
     elif sb in ("DIRR", "DIR R"):
         key = "DirR"
@@ -2832,10 +3450,15 @@ def update_rfactor_leaderboards(_):
 @dash_app.callback(
     Output("volm-buy-grid",  "rowData"),
     Output("volm-sell-grid", "rowData"),
+    Output("rvol5-label",    "children"),
     Input("refresh_volm", "n_intervals"),
 )
 def update_volm_grids(_):
-    return top15_buy_sell_rvolm_rows(n=15)
+    with CACHE_LOCK:
+        b = list(CACHE.get("rvol5_buy") or [])
+        s = list(CACHE.get("rvol5_sell") or [])
+        lbl = str(CACHE.get("rvol5_label") or "RVOL5: collecting…")
+    return b, s, lbl
 
 
 @dash_app.callback(

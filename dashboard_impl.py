@@ -1,19 +1,4 @@
-# dashboard_impl.py
-#
-# TurboTrades Dashboard implementation (NO AUTH here)
-# - Exposes:
-#     server               -> Dash WSGI server (mounted by FastAPI wrapper at /dash)
-#     openinterest         -> optioninterest module (mounted by FastAPI wrapper at /openinterest)
-#     async _startup()     -> start threads + openinterest startup
-#     async _shutdown()    -> openinterest shutdown
-#
-# Adds: Heatmap (Treemap) below Top 15 Gainers/Losers
-# - Color: %Change (from Open)
-# - Tile size: Turnover proxy = LTP * VolumeTraded
-# - Sector order: sorted by sector average momentum mean (DirR)
-# - Includes ALL sectors & ALL stocks exactly as in SECTOR_DEFINITIONS
-#   (so duplicates like NIFTY_50 are included too)
-
+# dashboard_clean.py
 import os
 import time
 import threading
@@ -25,11 +10,12 @@ from urllib.parse import unquote
 from zoneinfo import ZoneInfo
 from pathlib import Path
 import json
+import math
 
 import pandas as pd
 
 import dash
-from dash import dcc, html, Input, Output, State
+from dash import dcc, html, Input, Output, State, ctx
 import dash_bootstrap_components as dbc
 import dash_ag_grid as dag
 
@@ -38,7 +24,7 @@ from kiteconnect import KiteConnect, KiteTicker
 # OpenInterest FastAPI app (mounted by wrapper)
 import optioninterest as openinterest
 from heatmap_impl import build_market_heatmap_figure
-from dash import dcc, html, Input, Output, State, ctx
+
 
 # =============================================================================
 # LOGGING
@@ -83,31 +69,33 @@ NIFTY_SPOT_SYMBOL = os.getenv("NIFTY_SPOT_SYMBOL", "NSE:NIFTY 50")
 COMPUTE_CORE_EVERY_SEC = float(os.getenv("COMPUTE_CORE_EVERY_SEC", "2.0"))
 COMPUTE_HOT_EVERY_SEC = float(os.getenv("COMPUTE_HOT_EVERY_SEC", "5.0"))
 COMPUTE_PCR_EVERY_SEC = float(os.getenv("COMPUTE_PCR_EVERY_SEC", "5.0"))
+COMPUTE_RVOL5_EVERY_SEC = float(os.getenv("COMPUTE_RVOL5_EVERY_SEC", "5.0"))
 COMPUTE_SLEEP_SEC = float(os.getenv("COMPUTE_SLEEP_SEC", "0.20"))
 
 SECTOR_PLOT_H_PX = int(os.getenv("SECTOR_PLOT_H_PX", "360"))
 
-# Pacing curve
+# Rolling RVOL5 (last 5 minutes)
+RVOL5_WINDOW_SEC = int(os.getenv("RVOL5_WINDOW_SEC", "300"))
+
+# Pacing curve (learned)
 PACE_CURVE_READY = False
 PACE_CUM_FRAC_MIN: List[float] = []
 PACE_BUILD_STARTED = False
 PACE_LOCK = threading.Lock()
 PACE_CACHE_PATH = Path("/tmp/pace_curve_cache.json")
 
-# Recency
-RECENCY_WINDOW_SEC = int(os.getenv("RECENCY_WINDOW_SEC", "900"))
-RECENCY_WEIGHT = float(os.getenv("RECENCY_WEIGHT", "0.50"))
+# Fallback U-curve
+U_CURVE_READY = False
+U_CUM_FRAC: List[float] = []
 
+# Recency settings
+RECENCY_WEIGHT = float(os.getenv("RECENCY_WEIGHT", "0.50"))
 RECENCY_WINDOWS = [
     (300,  0.40),   # 5  min
     (900,  0.35),   # 15 min
     (1800, 0.25),   # 30 min
 ]
 
-# Rolling RVOL5 (last 5 minutes)
-RVOL5_WINDOW_SEC = int(os.getenv("RVOL5_WINDOW_SEC", "300"))          # 5 min
-COMPUTE_RVOL5_EVERY_SEC = float(os.getenv("COMPUTE_RVOL5_EVERY_SEC", "5.0"))
-import math
 
 # =============================================================================
 # KITE INIT
@@ -188,7 +176,7 @@ SECTOR_DEFINITIONS = {
         "HDFCLIFE", "LICI", "LICHSGFIN",
         "PNBHOUSING", "MUTHOOTFIN",
         "MANAPPURAM", "CHOLAFIN",
-        "PFC", "RECLTD","MOTILALOFS",
+        "PFC", "RECLTD", "MOTILALOFS",
         "HDFCAMC", "360ONE",
         "KFINTECH", "NUVAMA",
         "PAYTM", "POLICYBZR",
@@ -277,19 +265,75 @@ DAILY_SEED_ERRORS = 0
 
 
 # =============================================================================
-# U-SHAPED PACING CURVE
+# HELPERS
 # =============================================================================
-U_CURVE_READY = False
-U_CUM_FRAC: List[float] = []
+def market_is_open_ist(now: Optional[datetime] = None) -> bool:
+    now = now or datetime.now(IST)
+    if now.weekday() >= 5:
+        return False
+    t = now.time()
+    return dtime(9, 15) <= t <= dtime(15, 30)
 
 
+def _record_tick_batch(count: int, last_dt: Optional[datetime]):
+    global LAST_TICK_TS, LAST_TICK_DT, TOTAL_TICKS
+    now = time.time()
+    TOTAL_TICKS += int(count)
+
+    TPS_BUCKETS.append((now, int(count)))
+    cutoff = now - TPS_WINDOW_SEC
+    while TPS_BUCKETS and TPS_BUCKETS[0][0] < cutoff:
+        TPS_BUCKETS.popleft()
+
+    LAST_TICK_TS = now
+    LAST_TICK_DT = last_dt or datetime.now()
+
+
+def _hot_history_push(token: int, epoch: float, ltp: float, cumvol: Optional[float]):
+    dq = HOT_HISTORY.get(token)
+    if dq is None:
+        dq = deque()
+        HOT_HISTORY[token] = dq
+
+    # sample compression
+    if dq and (epoch - dq[-1][0]) < HOT_SAMPLE_SEC:
+        last_epoch, _, last_vol = dq[-1]
+        dq[-1] = (last_epoch, float(ltp), float(cumvol) if cumvol is not None else last_vol)
+    else:
+        dq.append((float(epoch), float(ltp), float(cumvol) if cumvol is not None else None))
+
+    cutoff = epoch - HOT_HISTORY_MAX_SEC
+    while dq and dq[0][0] < cutoff:
+        dq.popleft()
+
+
+# =============================================================================
+# TICK PROCESSING
+# =============================================================================
+def update_from_tick(tick: dict):
+    token = tick["instrument_token"]
+    ltp = tick.get("last_price")
+    cumvol = tick.get("volume_traded")
+    ohlc = tick.get("ohlc") or {}
+    ts = tick.get("exchange_timestamp") or datetime.now()
+
+    if ltp is None:
+        return None
+
+    LAST_PRICE[token] = float(ltp)
+    if cumvol is not None:
+        DAY_VOL[token] = float(cumvol)
+    if ohlc:
+        LAST_OHLC[token] = ohlc
+
+    _hot_history_push(token, time.time(), float(ltp), float(cumvol) if cumvol is not None else None)
+    return ts
+
+
+# =============================================================================
+# U-SHAPED PACING CURVE (fallback)
+# =============================================================================
 def _build_u_shaped_cum_curve(total_mins: int = 375, a: float = 0.65, b: float = 0.65) -> List[float]:
-    """
-    Smooth U-shaped expected intraday volume curve.
-    Uses a Beta-like shape: w(x) ∝ x^(a-1) * (1-x)^(b-1)
-    For a=b<1 => U-shape (more vol near open/close, less mid-day).
-    Returns cumulative fractions, last = 1.0
-    """
     weights: List[float] = []
     for i in range(total_mins):
         x = (i + 0.5) / total_mins
@@ -315,383 +359,11 @@ def init_u_curve_once():
     U_CURVE_READY = True
 
 
-def market_is_open_ist(now: Optional[datetime] = None) -> bool:
-    now = now or datetime.now(IST)
-    if now.weekday() >= 5:
-        return False
-    t = now.time()
-    return dtime(9, 15) <= t <= dtime(15, 30)
-
-
-def _record_tick_batch(count: int, last_dt: Optional[datetime]):
-    global LAST_TICK_TS, LAST_TICK_DT, TOTAL_TICKS
-    now = time.time()
-    TOTAL_TICKS += int(count)
-
-    TPS_BUCKETS.append((now, int(count)))
-    cutoff = now - TPS_WINDOW_SEC
-    while TPS_BUCKETS and TPS_BUCKETS[0][0] < cutoff:
-        TPS_BUCKETS.popleft()
-
-    LAST_TICK_TS = now
-    LAST_TICK_DT = last_dt or datetime.now()
-
-
-def _get_tps() -> float:
-    if not TPS_BUCKETS:
-        return 0.0
-    return sum(c for _, c in TPS_BUCKETS) / TPS_WINDOW_SEC
-
-
-def _hot_history_push(token: int, epoch: float, ltp: float, cumvol: Optional[float]):
-    dq = HOT_HISTORY.get(token)
-    if dq is None:
-        dq = deque()
-        HOT_HISTORY[token] = dq
-
-    if dq and (epoch - dq[-1][0]) < HOT_SAMPLE_SEC:
-        last_epoch, _, last_vol = dq[-1]
-        dq[-1] = (last_epoch, float(ltp), float(cumvol) if cumvol is not None else last_vol)
-    else:
-        dq.append((float(epoch), float(ltp), float(cumvol) if cumvol is not None else None))
-
-    cutoff = epoch - HOT_HISTORY_MAX_SEC
-    while dq and dq[0][0] < cutoff:
-        dq.popleft()
-
-
 # =============================================================================
-# RECENCY HELPERS (uses existing HOT_HISTORY)
-# =============================================================================
-
-def _get_price_at_cutoff(
-    series: List[Tuple[float, float, Optional[float]]],
-    cutoff_epoch: float,
-) -> Optional[float]:
-    """Last known price AT or BEFORE cutoff_epoch."""
-    result = None
-    for t, p, v in series:
-        if float(t) <= cutoff_epoch:
-            result = float(p)
-        else:
-            break
-    return result
-
-
-def _get_vol_at_cutoff(
-    series: List[Tuple[float, float, Optional[float]]],
-    cutoff_epoch: float,
-) -> Optional[float]:
-    """Last known cumulative volume AT or BEFORE cutoff_epoch."""
-    result = None
-    for t, p, v in series:
-        if float(t) <= cutoff_epoch:
-            if v is not None:
-                result = float(v)
-        else:
-            break
-    return result
-
-def _get_cumvol_and_epoch_at_or_before(
-    series: List[Tuple[float, float, Optional[float]]],
-    cutoff_epoch: float,
-) -> Tuple[Optional[float], Optional[float]]:
-    """
-    Returns (base_epoch, base_cumvol) at or before cutoff_epoch.
-    If not available, returns (None, None).
-    """
-    base_t = None
-    base_v = None
-    for t, _p, v in series:
-        if float(t) <= float(cutoff_epoch):
-            if v is not None:
-                base_t = float(t)
-                base_v = float(v)
-        else:
-            break
-    return base_t, base_v
-
-def compute_rolling_rvol5_leaderboards(window_sec: int = RVOL5_WINDOW_SEC) -> Tuple[List[dict], List[dict], str]:
-    """
-    Rolling last-N-sec RVOL5:
-
-      Vol5  = cumvol(now) - cumvol(now - window)
-      Exp5  = avg_vol_20 * (tf_now - tf_then)    (paced expected fraction)
-      RVOL5 = Vol5 / Exp5
-
-    Returns (buy_rows, sell_rows, label)
-    """
-    now_ist   = datetime.now(IST)
-    now_epoch = time.time()
-
-    if not market_is_open_ist(now_ist):
-        return [], [], "RVOL5: market closed"
-
-    # Need HOT_HISTORY to look back 5 minutes
-    snap = _snapshot_state(include_hot=True)
-    hot  = snap.get("hot") or {}
-    daily_map = snap.get("daily") or {}
-
-    tf_now = _time_factor_ist_for_rvol(now_ist)
-
-    buy: List[dict] = []
-    sell: List[dict] = []
-
-    for sym in ALL_SYMBOLS:
-        tok = symbol_to_token.get(sym)
-        if not tok:
-            continue
-
-        ltp  = (snap.get("price") or {}).get(tok)
-        cvol = (snap.get("vol")   or {}).get(tok)
-        ohlc = (snap.get("ohlc")  or {}).get(tok) or {}
-        op   = ohlc.get("open")
-
-        if ltp is None or cvol is None or op is None:
-            continue
-
-        avg_vol_20 = (daily_map.get(tok) or {}).get("avg_vol_20")
-        if not avg_vol_20 or float(avg_vol_20) <= 0:
-            continue
-
-        series = hot.get(tok)
-        if not series or len(series) < 2:
-            continue
-
-        cutoff = now_epoch - float(window_sec)
-        base_t, base_v = _get_cumvol_and_epoch_at_or_before(series, cutoff)
-
-        # If we don't have enough history, use earliest cumvol we do have
-        if base_v is None or base_t is None:
-            bt = bv = None
-            for t, _p, v in series:
-                if v is not None:
-                    bt = float(t)
-                    bv = float(v)
-                    break
-            if bv is None or bt is None:
-                continue
-            base_t, base_v = bt, bv
-
-        vol5 = float(cvol) - float(base_v)
-        if vol5 < 0:
-            continue
-
-        eff_sec = max(1.0, min(float(window_sec), now_epoch - float(base_t)))
-        then_ist = now_ist - timedelta(seconds=eff_sec)
-
-        tf_then = _time_factor_ist_for_rvol(then_ist)
-        frac = max(1e-4, float(tf_now) - float(tf_then))
-        exp5 = float(avg_vol_20) * frac
-
-        rvol5 = float(vol5) / (float(exp5) + 1e-9)
-        pct_open = (float(ltp) - float(op)) / (float(op) + 1e-9) * 100.0
-
-        row = {
-            "Symbol": sym,
-            "%Change": round(float(pct_open), 2),
-            "RVOL5": round(float(rvol5), 2),   # numeric (sorting stays correct)
-            "Vol5": int(vol5),
-        }
-
-        if pct_open >= 0:
-            buy.append(row)
-        else:
-            sell.append(row)
-
-    buy.sort(key=lambda r: float(r["RVOL5"]), reverse=True)
-    sell.sort(key=lambda r: float(r["RVOL5"]), reverse=True)
-
-    label = f"RVOL5 rolling {int(window_sec/60)}m • {now_ist.strftime('%H:%M:%S')}"
-    return buy[:15], sell[:15], label
-
-
-def _compute_recency_factors(
-    token: int,
-    current_ltp: float,
-    current_cumvol: Optional[float],
-    avg_vol_20: float,
-    window_sec: int = 900,
-) -> Dict[str, float]:
-    """
-    Compute recent price move % and recent volume pace
-    from HOT_HISTORY for a given look-back window.
-    """
-    fallback = {
-        "recent_pct"   : 0.0,
-        "recent_rvolm" : 1.0,
-        "recency_score": 1.0,
-        "has_data"     : 0.0,
-    }
-
-    with LOCK:
-        dq = HOT_HISTORY.get(token)
-        if not dq or len(dq) < 2:
-            return fallback
-        series = list(dq)   # snapshot — release lock before heavy work
-
-    now_epoch = float(series[-1][0])
-    cutoff    = now_epoch - float(window_sec)
-
-    base_price = _get_price_at_cutoff(series, cutoff)
-    if base_price is None:
-        base_price = float(series[0][1])
-    if not base_price or float(base_price) <= 0:
-        return fallback
-
-    recent_pct = (
-        (float(current_ltp) - float(base_price))
-        / (float(base_price) + 1e-9)
-        * 100.0
-    )
-
-    base_vol   = _get_vol_at_cutoff(series, cutoff)
-    recent_vol = None
-    if base_vol is not None and current_cumvol is not None:
-        recent_vol = max(0.0, float(current_cumvol) - float(base_vol))
-
-    window_mins     = float(window_sec) / 60.0
-    expected_recent = float(avg_vol_20) * (window_mins / 375.0)
-    recent_rvolm    = (
-        float(recent_vol) / (expected_recent + 1e-9)
-        if recent_vol is not None and expected_recent > 0
-        else 1.0
-    )
-
-    return {
-        "recent_pct"   : float(recent_pct),
-        "recent_rvolm" : float(recent_rvolm),
-        "recency_score": 1.0,
-        "has_data"     : 1.0,
-    }
-
-
-def _compute_recency_multiplier(
-    pct_open: float,
-    recent_pct: float,
-    recent_rvolm: float,
-    window_sec: int = 900,
-) -> float:
-    """
-    Returns a multiplier [0.05 - 1.0] that penalizes stale moves.
-
-    Logic:
-      - If stock moved a lot recently   -> multiplier near 1.0 (fresh)
-      - If stock is sideways recently   -> multiplier near 0.0 (stale)
-      - If recent vol is high           -> boost multiplier slightly
-      - If recent vol is dead           -> drag multiplier down
-
-    Two components:
-      1. Price recency  : how much of the session move happened recently
-      2. Volume recency : is volume still flowing in?
-    """
-
-    # ---- 1. Price Recency ----
-    abs_session = abs(float(pct_open))
-    abs_recent  = abs(float(recent_pct))
-
-    if abs_session < 1e-6:
-        price_recency = 0.5
-    else:
-        price_recency = min(abs_recent / (abs_session + 1e-9), 1.5)
-        price_recency = max(0.0, min(1.0, price_recency))
-
-    # ---- 2. Direction Consistency ----
-    same_direction = (
-        (float(pct_open) >= 0 and float(recent_pct) >= 0)
-        or
-        (float(pct_open) < 0 and float(recent_pct) < 0)
-    )
-    direction_factor = 1.0 if same_direction else 0.35
-
-    # ---- 3. Volume Recency ----
-    vol_recency = min(float(recent_rvolm) / 2.0, 1.0)
-    vol_recency = max(0.10, vol_recency)
-
-    # ---- Combine ----
-    recency_multiplier = (
-        (0.65 * price_recency * direction_factor)
-        + (0.35 * vol_recency)
-    )
-
-    return float(max(0.05, min(1.0, recency_multiplier)))
-
-
-def _compute_recency_multiplier_multi(
-    token: int,
-    pct_open: float,
-    current_ltp: float,
-    current_cumvol: Optional[float],
-    avg_vol_20: float,
-) -> float:
-    """
-    Multi-window recency: checks 5-min, 15-min, 30-min windows
-    and returns a weighted average multiplier.
-    Avoids over-penalising brief consolidations.
-    """
-    total_weight = 0.0
-    weighted_sum = 0.0
-
-    for window_sec, weight in RECENCY_WINDOWS:
-        rf = _compute_recency_factors(
-            token          = token,
-            current_ltp    = current_ltp,
-            current_cumvol = current_cumvol,
-            avg_vol_20     = avg_vol_20,
-            window_sec     = window_sec,
-        )
-
-        if float(rf["has_data"]) == 0.0:
-            continue
-
-        mult = _compute_recency_multiplier(
-            pct_open     = pct_open,
-            recent_pct   = float(rf["recent_pct"]),
-            recent_rvolm = float(rf["recent_rvolm"]),
-            window_sec   = window_sec,
-        )
-
-        weighted_sum += mult * weight
-        total_weight += weight
-
-    if total_weight <= 0:
-        return 1.0  # no data -> no penalty
-
-    return float(weighted_sum / total_weight)
-
-
-# =============================================================================
-# TICK PROCESSING
-# =============================================================================
-def update_from_tick(tick: dict):
-    token  = tick["instrument_token"]
-    ltp    = tick.get("last_price")
-    cumvol = tick.get("volume_traded")
-    ohlc   = tick.get("ohlc") or {}
-    ts     = tick.get("exchange_timestamp") or datetime.now()
-
-    if ltp is None:
-        return None
-
-    LAST_PRICE[token] = float(ltp)
-    if cumvol is not None:
-        DAY_VOL[token] = float(cumvol)
-    if ohlc:
-        LAST_OHLC[token] = ohlc
-
-    _hot_history_push(token, time.time(), float(ltp), float(cumvol) if cumvol is not None else None)
-    return ts
-
-
-# =============================================================================
-# PACING CURVE
+# LEARNED PACING CURVE (background build + cache)
 # =============================================================================
 def _pace_reference_tokens_all_sectors(max_per_sector: int = 2, max_total: int = 30) -> List[int]:
-    """
-    Render-safe: pick representative tokens across ALL sectors, capped.
-    """
     picked_syms: List[str] = []
-
     for _sector, syms in SECTOR_DEFINITIONS.items():
         cands = [s for s in syms if s in symbol_to_token]
         if not cands:
@@ -708,25 +380,20 @@ def _pace_reference_tokens_all_sectors(max_per_sector: int = 2, max_total: int =
         seen.add(tok)
         if len(out) >= max_total:
             break
-
     return out if out else TOKENS[:5]
 
 
 def _build_learned_pace_curve_from_history(days_back: int = 30) -> List[float]:
-    """
-    Build a 375-minute cumulative expected volume fraction curve from real 5-min candles.
-    Output: list length 375, last value = 1.0
-    """
     total_mins = 375
-    bins_5m    = total_mins // 5  # 75
+    bins_5m = total_mins // 5  # 75
 
-    toks    = _pace_reference_tokens_all_sectors(max_per_sector=2, max_total=20)
+    toks = _pace_reference_tokens_all_sectors(max_per_sector=2, max_total=20)
     vol_sum = [0.0] * bins_5m
-    vol_n   = 0
+    vol_n = 0
 
-    to_dt   = datetime.now(IST)
+    to_dt = datetime.now(IST)
     from_dt = to_dt - timedelta(days=days_back)
-    today   = datetime.now(IST).date()
+    today = datetime.now(IST).date()
 
     for tok in toks:
         candles = kite.historical_data(
@@ -763,8 +430,8 @@ def _build_learned_pace_curve_from_history(days_back: int = 30) -> List[float]:
     if vol_n <= 3:
         raise RuntimeError("Not enough intraday history to build learned pacing curve")
 
-    vol_avg    = [v / vol_n for v in vol_sum]
-    total      = sum(vol_avg) + 1e-12
+    vol_avg = [v / vol_n for v in vol_sum]
+    total = sum(vol_avg) + 1e-12
     weights_5m = [v / total for v in vol_avg]
 
     w_min: List[float] = []
@@ -807,12 +474,7 @@ def _save_pace_cache_today(curve: List[float]):
 
 
 def start_pace_curve_builder_once():
-    """
-    Render-safe: build in background so startup stays fast.
-    Sets PACE_CURVE_READY and PACE_CUM_FRAC_MIN when finished.
-    """
     global PACE_BUILD_STARTED, PACE_CURVE_READY, PACE_CUM_FRAC_MIN
-
     if PACE_BUILD_STARTED:
         return
     PACE_BUILD_STARTED = True
@@ -824,7 +486,7 @@ def start_pace_curve_builder_once():
         if cached:
             with PACE_LOCK:
                 PACE_CUM_FRAC_MIN = cached
-                PACE_CURVE_READY  = True
+                PACE_CURVE_READY = True
             log.info("PACE curve loaded from cache (%s)", str(PACE_CACHE_PATH))
             return
 
@@ -832,7 +494,7 @@ def start_pace_curve_builder_once():
             curve = _build_learned_pace_curve_from_history(days_back=30)
             with PACE_LOCK:
                 PACE_CUM_FRAC_MIN = curve
-                PACE_CURVE_READY  = True
+                PACE_CURVE_READY = True
             _save_pace_cache_today(curve)
             log.info("PACE curve built from intraday history (len=%s)", len(curve))
         except Exception as e:
@@ -842,10 +504,41 @@ def start_pace_curve_builder_once():
 
 
 # =============================================================================
+# TIME FACTOR (paced expected cumulative fraction)
+# =============================================================================
+def _time_factor_ist_for_rvol(now_ist: Optional[datetime] = None) -> float:
+    now_ist = now_ist or datetime.now(IST)
+
+    m_open = now_ist.replace(hour=9, minute=15, second=0, microsecond=0)
+    m_close = now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
+    total_mins = 375
+
+    if now_ist <= m_open:
+        mins_passed = 1
+    elif now_ist >= m_close:
+        mins_passed = total_mins
+    else:
+        mins_passed = int((now_ist - m_open).total_seconds() // 60)
+        mins_passed = max(1, min(total_mins, mins_passed))
+
+    idx = mins_passed - 1
+
+    with PACE_LOCK:
+        if PACE_CURVE_READY and len(PACE_CUM_FRAC_MIN) == total_mins:
+            tf = float(PACE_CUM_FRAC_MIN[idx])
+        elif U_CURVE_READY and len(U_CUM_FRAC) == total_mins:
+            tf = float(U_CUM_FRAC[idx])
+        else:
+            tf = mins_passed / float(total_mins)
+
+    return max(0.01, min(1.0, float(tf)))
+
+
+# =============================================================================
 # DAILY STATS SEED
 # =============================================================================
 def compute_20d_daily_stats_and_eod(token: int, days_back: int = 220) -> Dict[str, Any]:
-    to_dt   = datetime.now()
+    to_dt = datetime.now(IST)
     from_dt = to_dt - timedelta(days=days_back)
 
     candles = kite.historical_data(
@@ -856,14 +549,13 @@ def compute_20d_daily_stats_and_eod(token: int, days_back: int = 220) -> Dict[st
         continuous=False,
         oi=False,
     )
-
     df = pd.DataFrame(candles)
     if df.empty or len(df) < LOOKBACK_SESSIONS + 2:
         return {"avg_vol_20": None, "avg_range_20": None, "avg_abs_oc_ret_20": None, "eod": None}
 
     df["date"] = pd.to_datetime(df["date"])
-    df["d"]    = df["date"].dt.date
-    today_ist  = datetime.now(IST).date()
+    df["d"] = df["date"].dt.date
+    today_ist = datetime.now(IST).date()
 
     if market_is_open_ist() and df.iloc[-1]["d"] == today_ist:
         df = df.iloc[:-1].copy()
@@ -875,23 +567,23 @@ def compute_20d_daily_stats_and_eod(token: int, days_back: int = 220) -> Dict[st
     prev = df.iloc[-2]
 
     eod = {
-        "date"      : last["d"],
-        "open"      : float(last["open"]),
-        "high"      : float(last["high"]),
-        "low"       : float(last["low"]),
-        "close"     : float(last["close"]),
-        "volume"    : float(last["volume"]),
+        "date": last["d"],
+        "open": float(last["open"]),
+        "high": float(last["high"]),
+        "low": float(last["low"]),
+        "close": float(last["close"]),
+        "volume": float(last["volume"]),
         "prev_close": float(prev["close"]),
     }
 
     df_stats = df.tail(LOOKBACK_SESSIONS).copy()
-    df_stats["range"]      = (df_stats["high"] - df_stats["low"]).astype(float)
+    df_stats["range"] = (df_stats["high"] - df_stats["low"]).astype(float)
     df_stats["oc_ret_pct"] = (df_stats["close"] - df_stats["open"]) / df_stats["open"] * 100.0
     df_stats = df_stats.dropna()
 
     return {
-        "avg_vol_20"       : float(df_stats["volume"].mean())           if not df_stats.empty else None,
-        "avg_range_20"     : float(df_stats["range"].mean())            if not df_stats.empty else None,
+        "avg_vol_20": float(df_stats["volume"].mean()) if not df_stats.empty else None,
+        "avg_range_20": float(df_stats["range"].mean()) if not df_stats.empty else None,
         "avg_abs_oc_ret_20": float(df_stats["oc_ret_pct"].abs().mean()) if not df_stats.empty else None,
         "eod": eod,
     }
@@ -906,7 +598,7 @@ def seed_daily_stats_once(per_req_sleep: float = SEED_SLEEP_SEC):
     def _run():
         global DAILY_SEED_DONE, DAILY_SEED_ERRORS
         DAILY_SEED_PROGRESS["total"] = len(TOKENS)
-        DAILY_SEED_PROGRESS["done"]  = 0
+        DAILY_SEED_PROGRESS["done"] = 0
 
         for i, tok in enumerate(TOKENS, start=1):
             try:
@@ -917,8 +609,8 @@ def seed_daily_stats_once(per_req_sleep: float = SEED_SLEEP_SEC):
 
             with LOCK:
                 DAILY_STATS[tok] = {
-                    "avg_vol_20"       : st.get("avg_vol_20"),
-                    "avg_range_20"     : st.get("avg_range_20"),
+                    "avg_vol_20": st.get("avg_vol_20"),
+                    "avg_range_20": st.get("avg_range_20"),
                     "avg_abs_oc_ret_20": st.get("avg_abs_oc_ret_20"),
                 }
                 if st.get("eod"):
@@ -954,10 +646,10 @@ def load_nfo_instruments_once():
             df = df[df["instrument_type"].isin(["CE", "PE"])].copy()
             df = df[df["name"] == "NIFTY"].copy()
             df["expiry"] = pd.to_datetime(df["expiry"]).dt.date
-            globals()["NFO_INS_DF"] = df
+            NFO_INS_DF = df
             log.info("Loaded NFO instruments (NIFTY only): %s rows", len(df))
         except Exception as e:
-            globals()["NFO_LOAD_ERR"] = repr(e)
+            NFO_LOAD_ERR = repr(e)
             log.exception("Failed to load NFO instruments")
 
     threading.Thread(target=_run, daemon=True).start()
@@ -988,7 +680,7 @@ def _infer_strike_step(strikes: pd.Series) -> float:
 
 def compute_real_nifty_oi_pcr(strikes_around_atm: int = PCR_STRIKES_AROUND_ATM) -> Optional[dict]:
     cache_key = f"NIFTY:oi:{strikes_around_atm}"
-    cached    = PCR_CACHE.get(cache_key)
+    cached = PCR_CACHE.get(cache_key)
     if cached and cached[1] > time.time():
         return cached[0]
 
@@ -1013,10 +705,10 @@ def compute_real_nifty_oi_pcr(strikes_around_atm: int = PCR_STRIKES_AROUND_ATM) 
         return None
 
     step = _infer_strike_step(dfe["strike"])
-    atm  = round(spot / step) * step
+    atm = round(spot / step) * step
 
-    lo  = atm - strikes_around_atm * step
-    hi  = atm + strikes_around_atm * step
+    lo = atm - strikes_around_atm * step
+    hi = atm + strikes_around_atm * step
     dfe = dfe[(dfe["strike"] >= lo) & (dfe["strike"] <= hi)].copy()
     if dfe.empty:
         return None
@@ -1026,7 +718,7 @@ def compute_real_nifty_oi_pcr(strikes_around_atm: int = PCR_STRIKES_AROUND_ATM) 
 
     ce_keys = ["NFO:" + s for s in ce["tradingsymbol"].tolist()]
     pe_keys = ["NFO:" + s for s in pe["tradingsymbol"].tolist()]
-    keys    = ce_keys + pe_keys
+    keys = ce_keys + pe_keys
     if not keys:
         return None
 
@@ -1037,19 +729,19 @@ def compute_real_nifty_oi_pcr(strikes_around_atm: int = PCR_STRIKES_AROUND_ATM) 
 
     ce_oi = sum(float(q.get(k, {}).get("oi") or 0.0) for k in ce_keys)
     pe_oi = sum(float(q.get(k, {}).get("oi") or 0.0) for k in pe_keys)
-    pcr   = pe_oi / (ce_oi + 1e-9)
+    pcr = pe_oi / (ce_oi + 1e-9)
 
     data = {
         "underlying": "NIFTY",
-        "expiry"    : str(expiry),
-        "spot"      : spot,
-        "atm"       : atm,
-        "step"      : step,
-        "range"     : [float(lo), float(hi)],
-        "ce_oi"     : float(ce_oi),
-        "pe_oi"     : float(pe_oi),
-        "pcr"       : float(pcr),
-        "strikes"   : int(len(dfe)),
+        "expiry": str(expiry),
+        "spot": spot,
+        "atm": atm,
+        "step": step,
+        "range": [float(lo), float(hi)],
+        "ce_oi": float(ce_oi),
+        "pe_oi": float(pe_oi),
+        "pcr": float(pcr),
+        "strikes": int(len(dfe)),
         "updated_at": datetime.now(IST).strftime("%H:%M:%S"),
     }
 
@@ -1070,41 +762,16 @@ def pcr_label_from_value(pcr: float) -> str:
 
 
 # =============================================================================
-# SNAPSHOTS + BACKGROUND COMPUTE CACHE
+# SNAPSHOTS
 # =============================================================================
-CACHE_LOCK = threading.Lock()
-CACHE: Dict[str, Any] = {
-    "sector_agg"   : {},
-    "top15_gainers": [],
-    "top15_losers" : [],
-    "hvhr_gainers" : [],
-    "hvhr_losers"  : [],
-    "hot_gainers"  : [],
-    "hot_losers"   : [],
-    "heatmap_rows" : [],
-    "sentiment"    : {"adv": 0, "dec": 0, "unch": 0, "total": 0, "score": 0.0, "label": "NEUTRAL"},
-    "pcr"          : None,
-
-    # --- RVOL5 (true last completed 5-min bucket) ---
-    "rvol5_buy"    : [],
-    "rvol5_sell"   : [],
-    "rvol5_label"  : "Waiting 5-min bucket…",
-
-    "updated"      : {"core": 0.0, "hot": 0.0, "pcr": 0.0},
-        "rvol5_buy"   : [],
-    "rvol5_sell"  : [],
-    "rvol5_label" : "RVOL5: collecting…",
-}
-
-
 def _snapshot_state(include_hot: bool = False) -> Dict[str, Any]:
     with LOCK:
         snap = {
-            "price" : dict(LAST_PRICE),
-            "vol"   : dict(DAY_VOL),
-            "ohlc"  : dict(LAST_OHLC),
-            "eod"   : dict(EOD_SNAPSHOT),
-            "daily" : dict(DAILY_STATS),
+            "price": dict(LAST_PRICE),
+            "vol": dict(DAY_VOL),
+            "ohlc": dict(LAST_OHLC),
+            "eod": dict(EOD_SNAPSHOT),
+            "daily": dict(DAILY_STATS),
             "tokens": list(TOKENS),
         }
         if include_hot:
@@ -1113,14 +780,14 @@ def _snapshot_state(include_hot: bool = False) -> Dict[str, Any]:
 
 
 def _get_live_or_eod_state_from_snap(token: int, snap: Dict[str, Any]) -> Optional[Tuple[float, float, dict]]:
-    ltp       = snap["price"].get(token)
+    ltp = snap["price"].get(token)
     vol_today = snap["vol"].get(token)
-    ohlc      = snap["ohlc"].get(token) or {}
+    ohlc = snap["ohlc"].get(token) or {}
 
     if (
-        ltp       is not None
+        ltp is not None
         and vol_today is not None
-        and ohlc.get("open")  is not None
+        and ohlc.get("open") is not None
         and ohlc.get("close") is not None
     ):
         return float(ltp), float(vol_today), ohlc
@@ -1132,216 +799,129 @@ def _get_live_or_eod_state_from_snap(token: int, snap: Dict[str, Any]) -> Option
     ohlc_eod = {"open": e["open"], "high": e["high"], "low": e["low"], "close": e["prev_close"]}
     return float(e["close"]), float(e["volume"]), ohlc_eod
 
+
 # =============================================================================
-# RVOL5 (TRUE LAST COMPLETED 5-MIN BUCKET)
+# RECENCY HELPERS (from HOT_HISTORY)
 # =============================================================================
-RVOL5_INITIALIZED = False
-RVOL5_LAST_SLOT   = -1  # 5-min slot index since 09:15
-RVOL5_BASE_CUMVOL: Dict[int, float] = {}  # token -> cumvol at last boundary
-
-
-def _mins_since_open_ist(now_ist: Optional[datetime] = None) -> int:
-    now_ist = now_ist or datetime.now(IST)
-    m_open = now_ist.replace(hour=9, minute=15, second=0, microsecond=0)
-    return int((now_ist - m_open).total_seconds() // 60)
-
-
-def _slot_5m_ist(now_ist: Optional[datetime] = None) -> int:
-    mins = _mins_since_open_ist(now_ist or datetime.now(IST))
-    if mins < 0:
-        return -1
-    return mins // 5
-
-
-def _expected_frac_between_minutes(m0: int, m1: int) -> float:
-    """
-    Expected fraction of day's volume in [m0, m1) minutes since 09:15.
-    Uses learned curve -> U-curve -> linear fallback.
-    """
-    total_mins = 375
-    m0 = max(0, min(total_mins, int(m0)))
-    m1 = max(0, min(total_mins, int(m1)))
-    if m1 <= m0:
-        return 0.0
-
-    with PACE_LOCK:
-        if PACE_CURVE_READY and len(PACE_CUM_FRAC_MIN) == total_mins:
-            cum = PACE_CUM_FRAC_MIN
-        elif U_CURVE_READY and len(U_CUM_FRAC) == total_mins:
-            cum = U_CUM_FRAC
+def _get_price_at_cutoff(series: List[Tuple[float, float, Optional[float]]], cutoff_epoch: float) -> Optional[float]:
+    result = None
+    for t, p, _v in series:
+        if float(t) <= cutoff_epoch:
+            result = float(p)
         else:
-            cum = [(i + 1) / total_mins for i in range(total_mins)]
-
-    end = float(cum[m1 - 1])
-    start = float(cum[m0 - 1]) if m0 > 0 else 0.0
-    return max(0.0, end - start)
+            break
+    return result
 
 
-def _update_rvol5_cache_if_boundary():
-    """
-    Updates CACHE['rvol5_buy'/'rvol5_sell'] ONLY when a new 5-min slot begins.
-    Buckets are aligned from 09:15 IST: [09:15-09:20], [09:20-09:25], ...
-    """
-    global RVOL5_INITIALIZED, RVOL5_LAST_SLOT, RVOL5_BASE_CUMVOL
-
-    now_ist = datetime.now(IST)
-
-    # Only meaningful during market hours
-    if not market_is_open_ist(now_ist):
-        return
-
-    mins = _mins_since_open_ist(now_ist)
-    if mins < 0 or mins > 375:
-        return
-
-    # We only want to act on boundary minutes: 0,5,10,... since 09:15
-    if (mins % 5) != 0:
-        return
-
-    slot = mins // 5
-    if slot < 0:
-        return
-
-    # Snapshot (we need cumvol/open/ltp + avg_vol_20)
-    snap  = _snapshot_state(include_hot=False)
-    daily = snap.get("daily") or {}
-
-    # First time: initialize baseline exactly on a boundary, then wait for next boundary to compute a bucket
-    if not RVOL5_INITIALIZED:
-        RVOL5_BASE_CUMVOL = {}
-        for tok in TOKENS:
-            v = (snap.get("vol") or {}).get(tok)
+def _get_vol_at_cutoff(series: List[Tuple[float, float, Optional[float]]], cutoff_epoch: float) -> Optional[float]:
+    result = None
+    for t, _p, v in series:
+        if float(t) <= cutoff_epoch:
             if v is not None:
-                RVOL5_BASE_CUMVOL[tok] = float(v)
-        RVOL5_INITIALIZED = True
-        RVOL5_LAST_SLOT   = slot
-        with CACHE_LOCK:
-            CACHE["rvol5_label"] = "Collecting first 5-min bucket…"
-        return
-
-    # If same slot, nothing to do
-    if slot == RVOL5_LAST_SLOT:
-        return
-
-    # If we skipped slots (server paused, lag), resync baseline and skip (prevents wrong bucket math)
-    if RVOL5_LAST_SLOT >= 0 and slot != (RVOL5_LAST_SLOT + 1):
-        RVOL5_BASE_CUMVOL = {}
-        for tok in TOKENS:
-            v = (snap.get("vol") or {}).get(tok)
-            if v is not None:
-                RVOL5_BASE_CUMVOL[tok] = float(v)
-        RVOL5_LAST_SLOT = slot
-        with CACHE_LOCK:
-            CACHE["rvol5_label"] = "Resynced RVOL5 baseline…"
-        return
-
-    completed = slot - 1  # last fully completed 5-min bucket
-    if completed < 0:
-        RVOL5_LAST_SLOT = slot
-        return
-
-    m0 = completed * 5
-    m1 = m0 + 5
-    frac5 = _expected_frac_between_minutes(m0, m1)
-
-    # Label like "09:15–09:20"
-    m_open = now_ist.replace(hour=9, minute=15, second=0, microsecond=0)
-    start_t = (m_open + timedelta(minutes=m0)).strftime("%H:%M")
-    end_t   = (m_open + timedelta(minutes=m1)).strftime("%H:%M")
-    label   = f"RVOL5 Window: {start_t}–{end_t}"
-
-    buy_rows: List[dict] = []
-    sell_rows: List[dict] = []
-
-    for sym in ALL_SYMBOLS:
-        tok = symbol_to_token.get(sym)
-        if not tok:
-            continue
-
-        st_live = _get_live_or_eod_state_from_snap(tok, snap)
-        if not st_live:
-            continue
-
-        ltp, cumvol, ohlc = st_live
-        op = (ohlc or {}).get("open")
-        if op is None:
-            continue
-
-        cur_cum  = float(cumvol or 0.0)
-        prev_cum = float(RVOL5_BASE_CUMVOL.get(tok, cur_cum))
-        vol5 = max(0.0, cur_cum - prev_cum)
-
-        # Update baseline for next bucket immediately
-        RVOL5_BASE_CUMVOL[tok] = cur_cum
-
-        avg_vol_20 = (daily.get(tok) or {}).get("avg_vol_20")
-        if not avg_vol_20 or frac5 <= 0:
-            continue
-
-        exp5  = float(avg_vol_20) * float(frac5)
-        rvol5 = float(vol5) / (exp5 + 1e-9)
-
-        pct_open = (float(ltp) - float(op)) / float(op) * 100.0
-
-        row = {
-            "Symbol": sym,
-            "%Change": round(float(pct_open), 2),
-            "RVOL5": float(round(rvol5, 2)),   # keep numeric for correct sorting
-            "Vol5": int(vol5),
-        }
-
-        if pct_open >= 0:
-            buy_rows.append(row)
+                result = float(v)
         else:
-            sell_rows.append(row)
-
-    buy_rows.sort(key=lambda r: float(r["RVOL5"]), reverse=True)
-    sell_rows.sort(key=lambda r: float(r["RVOL5"]), reverse=True)
-
-    with CACHE_LOCK:
-        CACHE["rvol5_buy"]   = buy_rows[:15]
-        CACHE["rvol5_sell"]  = sell_rows[:15]
-        CACHE["rvol5_label"] = label
-
-    RVOL5_LAST_SLOT = slot
+            break
+    return result
 
 
-def _time_factor_ist_for_rvol(now_ist: Optional[datetime] = None) -> float:
-    """
-    Returns expected *cumulative* volume fraction for the current time in IST.
+def _compute_recency_factors(
+    token: int,
+    current_ltp: float,
+    current_cumvol: Optional[float],
+    avg_vol_20: float,
+    window_sec: int,
+) -> Dict[str, float]:
+    fallback = {"recent_pct": 0.0, "recent_rvolm": 1.0, "has_data": 0.0}
+    with LOCK:
+        dq = HOT_HISTORY.get(token)
+        if not dq or len(dq) < 2:
+            return fallback
+        series = list(dq)
 
-    Priority:
-      1) Learned curve (PACE_CUM_FRAC_MIN) if ready
-      2) U-shaped fallback curve (U_CUM_FRAC) if ready
-      3) Linear fallback (mins_passed / 375)
+    now_epoch = float(series[-1][0])
+    cutoff = now_epoch - float(window_sec)
 
-    Output is clamped to [0.01, 1.0]
-    """
-    now_ist = now_ist or datetime.now(IST)
+    base_price = _get_price_at_cutoff(series, cutoff)
+    if base_price is None:
+        base_price = float(series[0][1])
+    if not base_price or float(base_price) <= 0:
+        return fallback
 
-    m_open  = now_ist.replace(hour=9,  minute=15, second=0, microsecond=0)
-    m_close = now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
-    total_mins = 375
+    recent_pct = (float(current_ltp) - float(base_price)) / (float(base_price) + 1e-9) * 100.0
 
-    if now_ist <= m_open:
-        mins_passed = 1
-    elif now_ist >= m_close:
-        mins_passed = total_mins
+    base_vol = _get_vol_at_cutoff(series, cutoff)
+    recent_vol = None
+    if base_vol is not None and current_cumvol is not None:
+        recent_vol = max(0.0, float(current_cumvol) - float(base_vol))
+
+    # expected volume share (simple time share of day)
+    window_mins = float(window_sec) / 60.0
+    expected_recent = float(avg_vol_20) * (window_mins / 375.0)
+    recent_rvolm = (
+        float(recent_vol) / (expected_recent + 1e-9)
+        if recent_vol is not None and expected_recent > 0
+        else 1.0
+    )
+
+    return {"recent_pct": float(recent_pct), "recent_rvolm": float(recent_rvolm), "has_data": 1.0}
+
+
+def _compute_recency_multiplier(pct_open: float, recent_pct: float, recent_rvolm: float) -> float:
+    abs_session = abs(float(pct_open))
+    abs_recent = abs(float(recent_pct))
+
+    if abs_session < 1e-6:
+        price_recency = 0.5
     else:
-        mins_passed = int((now_ist - m_open).total_seconds() // 60)
-        mins_passed = max(1, min(total_mins, mins_passed))
+        price_recency = min(abs_recent / (abs_session + 1e-9), 1.5)
+        price_recency = max(0.0, min(1.0, price_recency))
 
-    idx = mins_passed - 1
+    same_direction = (
+        (float(pct_open) >= 0 and float(recent_pct) >= 0)
+        or
+        (float(pct_open) < 0 and float(recent_pct) < 0)
+    )
+    direction_factor = 1.0 if same_direction else 0.35
 
-    with PACE_LOCK:
-        if PACE_CURVE_READY and len(PACE_CUM_FRAC_MIN) == total_mins:
-            tf = float(PACE_CUM_FRAC_MIN[idx])
-        elif U_CURVE_READY and len(U_CUM_FRAC) == total_mins:
-            tf = float(U_CUM_FRAC[idx])
-        else:
-            tf = mins_passed / float(total_mins)
+    vol_recency = min(float(recent_rvolm) / 2.0, 1.0)
+    vol_recency = max(0.10, vol_recency)
 
-    return max(0.01, min(1.0, float(tf)))
+    recency_multiplier = (0.65 * price_recency * direction_factor) + (0.35 * vol_recency)
+    return float(max(0.05, min(1.0, recency_multiplier)))
+
+
+def _compute_recency_multiplier_multi(
+    token: int,
+    pct_open: float,
+    current_ltp: float,
+    current_cumvol: Optional[float],
+    avg_vol_20: float,
+) -> float:
+    total_weight = 0.0
+    weighted_sum = 0.0
+
+    for window_sec, weight in RECENCY_WINDOWS:
+        rf = _compute_recency_factors(
+            token=token,
+            current_ltp=current_ltp,
+            current_cumvol=current_cumvol,
+            avg_vol_20=avg_vol_20,
+            window_sec=window_sec,
+        )
+        if float(rf["has_data"]) == 0.0:
+            continue
+
+        mult = _compute_recency_multiplier(
+            pct_open=pct_open,
+            recent_pct=float(rf["recent_pct"]),
+            recent_rvolm=float(rf["recent_rvolm"]),
+        )
+        weighted_sum += mult * weight
+        total_weight += weight
+
+    if total_weight <= 0:
+        return 1.0
+    return float(weighted_sum / total_weight)
 
 
 # =============================================================================
@@ -1354,100 +934,80 @@ def _compute_rfactor_row_snap(token: int, snap: Dict[str, Any]) -> Optional[Dict
 
     ltp, vol_today, ohlc = state_
     prev_close = ohlc.get("close")
-    day_open   = ohlc.get("open")
-    day_high   = ohlc.get("high")
-    day_low    = ohlc.get("low")
-
+    day_open = ohlc.get("open")
+    day_high = ohlc.get("high")
+    day_low = ohlc.get("low")
     if prev_close is None or day_open is None or day_high is None or day_low is None:
         return None
 
     prev_close = float(prev_close)
-    day_open   = float(day_open)
-    day_high   = float(day_high)
-    day_low    = float(day_low)
-    ltp        = float(ltp)
+    day_open = float(day_open)
+    day_high = float(day_high)
+    day_low = float(day_low)
+    ltp = float(ltp)
 
     if prev_close <= 0 or day_open <= 0 or ltp <= 0:
         return None
 
-    gap_pct  = ((day_open - prev_close) / prev_close) * 100.0
+    gap_pct = ((day_open - prev_close) / prev_close) * 100.0
     pct_open = ((ltp - day_open) / day_open) * 100.0
 
     st = (snap.get("daily") or {}).get(token) or {}
-    avg_vol_20        = st.get("avg_vol_20")
-    avg_range_20      = st.get("avg_range_20")
+    avg_vol_20 = st.get("avg_vol_20")
+    avg_range_20 = st.get("avg_range_20")
     avg_abs_oc_ret_20 = st.get("avg_abs_oc_ret_20")
-
     if not avg_vol_20 or not avg_range_20 or not avg_abs_oc_ret_20:
         return None
 
     eps = 1e-9
 
-    # ---- Paced RVOL ----
-    tf           = _time_factor_ist_for_rvol(datetime.now(IST))
+    tf = _time_factor_ist_for_rvol(datetime.now(IST))
     expected_vol = float(avg_vol_20) * tf
-    rvolm        = float(vol_today) / (expected_vol + eps)
+    rvolm = float(vol_today) / (expected_vol + eps)
 
-    # ---- Range expansion ----
-    range_today  = max(0.0, day_high - day_low)
+    range_today = max(0.0, day_high - day_low)
     range_factor = range_today / (float(avg_range_20) + eps)
 
-    # ---- Price move from open ----
     move_factor = abs(float(pct_open)) / (float(avg_abs_oc_ret_20) + eps)
 
-    # ---- Base RFactor ----
     rfactor_val = rvolm * range_factor * move_factor
 
-    # ---- Freshness (position in day range) ----
-    range_span        = max(day_high - day_low, eps)
+    # "freshness" in day's range
+    range_span = max(day_high - day_low, eps)
     position_in_range = (ltp - day_low) / range_span
     position_in_range = max(0.0, min(1.0, position_in_range))
-
-    if pct_open >= 0:
-        freshness = position_in_range ** 3
-    else:
-        freshness = (1.0 - position_in_range) ** 3
-
+    freshness = (position_in_range ** 3) if pct_open >= 0 else ((1.0 - position_in_range) ** 3)
     rfactor_val *= freshness
 
-    # ================================================================
-    # ---- RECENCY MULTIPLIER ----
-    # Penalizes stocks that moved in the morning and went sideways
-    # ================================================================
-    recency_mult = 1.0  # default: no penalty if no HOT data yet
-
+    # recency penalty/blend
+    recency_mult = 1.0
     if market_is_open_ist():
         recency_mult = _compute_recency_multiplier_multi(
-            token          = token,
-            pct_open       = pct_open,
-            current_ltp    = ltp,
-            current_cumvol = vol_today,
-            avg_vol_20     = float(avg_vol_20),
+            token=token,
+            pct_open=pct_open,
+            current_ltp=ltp,
+            current_cumvol=vol_today,
+            avg_vol_20=float(avg_vol_20),
         )
 
-    # Blend: RECENCY_WEIGHT=0 -> pure session; =1 -> fully recency-penalised
-    rfactor_final = rfactor_val * (
-        (1.0 - RECENCY_WEIGHT)
-        + (RECENCY_WEIGHT * recency_mult)
-    )
-
+    rfactor_final = rfactor_val * ((1.0 - RECENCY_WEIGHT) + (RECENCY_WEIGHT * recency_mult))
     dirr = (1.0 if pct_open >= 0 else -1.0) * rfactor_final
 
     return {
-        "gap_pct"     : float(gap_pct),
-        "pct_open"    : float(pct_open),
-        "rfactor"     : float(rfactor_final),
-        "rfactor_raw" : float(rfactor_val),     # pre-recency — useful for debug
-        "recency_mult": float(recency_mult),    # 0.05=stale, 1.0=fresh
-        "dirr"        : float(dirr),
-        "ltp"         : float(ltp),
-        "day_open"    : float(day_open),
-        "vol_today"   : float(vol_today),
+        "gap_pct": float(gap_pct),
+        "pct_open": float(pct_open),
+        "rfactor": float(rfactor_final),
+        "rfactor_raw": float(rfactor_val),
+        "recency_mult": float(recency_mult),
+        "dirr": float(dirr),
+        "ltp": float(ltp),
+        "day_open": float(day_open),
+        "vol_today": float(vol_today),
     }
 
 
 # =============================================================================
-# MARKET SENTIMENT
+# MARKET SENTIMENT (proxy)
 # =============================================================================
 def _compute_market_sentiment_proxy_snap(snap: Dict[str, Any]) -> Dict[str, Any]:
     adv = dec = unch = 0
@@ -1455,7 +1015,7 @@ def _compute_market_sentiment_proxy_snap(snap: Dict[str, Any]) -> Dict[str, Any]
         st = _get_live_or_eod_state_from_snap(tok, snap)
         if not st:
             continue
-        ltp, _, ohlc = st
+        ltp, _v, ohlc = st
         op = ohlc.get("open")
         if op is None:
             continue
@@ -1476,7 +1036,6 @@ def _compute_market_sentiment_proxy_snap(snap: Dict[str, Any]) -> Dict[str, Any]
 
     total = adv + dec + unch
     score = (adv - dec) / total if total > 0 else 0.0
-
     if score >= 0.20:
         label = "BULLISH"
     elif score <= -0.20:
@@ -1488,32 +1047,19 @@ def _compute_market_sentiment_proxy_snap(snap: Dict[str, Any]) -> Dict[str, Any]
 
 
 # =============================================================================
-# SECTOR AGGREGATES
+# SECTOR AGGREGATES (includes rolling RVOL5)
 # =============================================================================
 def _compute_sector_aggregates_from_rr_with_daily(
     rr_by_tok: Dict[int, Dict[str, float]],
     daily_map: Dict[int, Dict[str, Optional[float]]],
 ) -> Dict[str, Dict[str, float]]:
-    """
-    Sector bars metrics:
-      DirR = signed mean(DirR)
-
-      RVOLm...   = paced intraday RVOLm (existing)
-      RVOL5...   = rolling last-5-min RVOL (NEW)
-
-    NetSum  = Σbuy - Σsell
-    NetMean = NetSum / N
-    """
-    tf_day  = _time_factor_ist_for_rvol(datetime.now(IST))
+    tf_day = _time_factor_ist_for_rvol(datetime.now(IST))
     out: Dict[str, Dict[str, float]] = {}
 
-    # --- RVOL5 setup (NEW) ---
-    now_ist   = datetime.now(IST)
+    now_ist = datetime.now(IST)
     now_epoch = time.time()
     want_rvol5 = market_is_open_ist(now_ist)
-
-    rvol5_window_sec = 300.0
-    cutoff_epoch = now_epoch - rvol5_window_sec
+    cutoff_epoch = now_epoch - float(RVOL5_WINDOW_SEC)
     tf_now = _time_factor_ist_for_rvol(now_ist)
 
     def _cumvol_at_or_before(series, cutoff: float):
@@ -1528,14 +1074,12 @@ def _compute_sector_aggregates_from_rr_with_daily(
                 break
         if base_v is not None:
             return base_t, base_v
-        # fallback: earliest cumvol
         for t, _p, v in series:
             if v is not None:
                 return float(t), float(v)
         return None, None
 
-    # snapshot HOT_HISTORY once (avoid lock per symbol)
-    hot_snap = {}
+    hot_snap: Dict[int, List[Tuple[float, float, Optional[float]]]] = {}
     if want_rvol5:
         with LOCK:
             for tok in rr_by_tok.keys():
@@ -1545,14 +1089,11 @@ def _compute_sector_aggregates_from_rr_with_daily(
 
     for sector, syms in SECTOR_DEFINITIONS.items():
         dirr_vals: List[float] = []
-
-        # --- paced day RVOLm (existing) ---
         buy_sum = sell_sum = 0.0
-        buy_n   = sell_n   = 0
+        buy_n = sell_n = 0
 
-        # --- rolling RVOL5 (NEW) ---
         buy5_sum = sell5_sum = 0.0
-        buy5_n   = sell5_n   = 0
+        buy5_n = sell5_n = 0
 
         for s in syms:
             tok = symbol_to_token.get(s)
@@ -1567,9 +1108,8 @@ def _compute_sector_aggregates_from_rr_with_daily(
 
             st = daily_map.get(tok) or {}
             avg_vol_20 = st.get("avg_vol_20")
-            vol_today  = rr.get("vol_today")
-            pct_open   = rr.get("pct_open")
-
+            vol_today = rr.get("vol_today")
+            pct_open = rr.get("pct_open")
             if avg_vol_20 is None or vol_today is None or pct_open is None:
                 continue
 
@@ -1578,22 +1118,15 @@ def _compute_sector_aggregates_from_rr_with_daily(
                 if av <= 0:
                     continue
 
-                # -------------------------
-                # RVOLm (paced intraday)
-                # -------------------------
                 expected = av * float(tf_day)
                 rvolm = float(vol_today) / (expected + 1e-9)
-
                 if float(pct_open) >= 0:
                     buy_sum += rvolm
-                    buy_n   += 1
+                    buy_n += 1
                 else:
                     sell_sum += rvolm
-                    sell_n   += 1
+                    sell_n += 1
 
-                # -------------------------
-                # RVOL5 (rolling 5-min) NEW
-                # -------------------------
                 if want_rvol5:
                     series = hot_snap.get(tok)
                     if series and len(series) >= 2:
@@ -1601,62 +1134,54 @@ def _compute_sector_aggregates_from_rr_with_daily(
                         if base_t is not None and base_v is not None:
                             vol5 = float(vol_today) - float(base_v)
                             if vol5 >= 0:
-                                eff_sec = max(5.0, min(rvol5_window_sec, now_epoch - float(base_t)))
+                                eff_sec = max(5.0, min(float(RVOL5_WINDOW_SEC), now_epoch - float(base_t)))
                                 then_ist = now_ist - timedelta(seconds=eff_sec)
                                 tf_then = _time_factor_ist_for_rvol(then_ist)
-
                                 frac = max(1e-4, float(tf_now) - float(tf_then))
                                 exp5 = av * frac
                                 rvol5 = float(vol5) / (float(exp5) + 1e-9)
 
                                 if float(pct_open) >= 0:
                                     buy5_sum += rvol5
-                                    buy5_n   += 1
+                                    buy5_n += 1
                                 else:
                                     sell5_sum += rvol5
-                                    sell5_n   += 1
-
+                                    sell5_n += 1
             except Exception:
                 continue
 
-        # -------- aggregate outputs --------
-        n_total    = buy_n + sell_n
-        dirr_mean  = (sum(dirr_vals) / len(dirr_vals)) if dirr_vals else 0.0
+        n_total = buy_n + sell_n
+        dirr_mean = (sum(dirr_vals) / len(dirr_vals)) if dirr_vals else 0.0
 
-        net_sum    = float(buy_sum  - sell_sum)
-        gross_sum  = float(buy_sum  + sell_sum)
-        net_mean   = float(net_sum  / n_total) if n_total > 0 else 0.0
+        net_sum = float(buy_sum - sell_sum)
+        gross_sum = float(buy_sum + sell_sum)
+        net_mean = float(net_sum / n_total) if n_total > 0 else 0.0
         gross_mean = float(gross_sum / n_total) if n_total > 0 else 0.0
 
-        n5_total    = buy5_n + sell5_n
-        net5_sum    = float(buy5_sum - sell5_sum)
-        gross5_sum  = float(buy5_sum + sell5_sum)
-        net5_mean   = float(net5_sum / n5_total) if n5_total > 0 else 0.0
+        n5_total = buy5_n + sell5_n
+        net5_sum = float(buy5_sum - sell5_sum)
+        gross5_sum = float(buy5_sum + sell5_sum)
+        net5_mean = float(net5_sum / n5_total) if n5_total > 0 else 0.0
         gross5_mean = float(gross5_sum / n5_total) if n5_total > 0 else 0.0
 
         out[sector] = {
-            "DirR"          : float(dirr_mean),
+            "DirR": float(dirr_mean),
 
-            "RVOLmBuySum"   : float(buy_sum),
-            "RVOLmSellSum"  : float(sell_sum),
-            "RVOLmNetSum"   : float(net_sum),
-            "RVOLmGrossSum" : float(gross_sum),
-            "RVOLmNetMean"  : float(net_mean),
+            "RVOLmBuySum": float(buy_sum),
+            "RVOLmSellSum": float(sell_sum),
+            "RVOLmNetSum": float(net_sum),
+            "RVOLmGrossSum": float(gross_sum),
+            "RVOLmNetMean": float(net_mean),
             "RVOLmGrossMean": float(gross_mean),
-            "N"             : float(n_total),
-            "BuyN"          : float(buy_n),
-            "SellN"         : float(sell_n),
+            "N": float(n_total),
 
-            # NEW rolling RVOL5 sector metrics
-            "RVOL5BuySum"   : float(buy5_sum),
-            "RVOL5SellSum"  : float(sell5_sum),
-            "RVOL5NetSum"   : float(net5_sum),
-            "RVOL5GrossSum" : float(gross5_sum),
-            "RVOL5NetMean"  : float(net5_mean),
+            "RVOL5BuySum": float(buy5_sum),
+            "RVOL5SellSum": float(sell5_sum),
+            "RVOL5NetSum": float(net5_sum),
+            "RVOL5GrossSum": float(gross5_sum),
+            "RVOL5NetMean": float(net5_mean),
             "RVOL5GrossMean": float(gross5_mean),
-            "N5"            : float(n5_total),
-            "BuyN5"         : float(buy5_n),
-            "SellN5"        : float(sell5_n),
+            "N5": float(n5_total),
         }
 
     return out
@@ -1665,7 +1190,7 @@ def _compute_sector_aggregates_from_rr_with_daily(
 def _quantile_threshold(values: List[float], q: float) -> Optional[float]:
     if not values:
         return None
-    q  = min(max(float(q), 0.0), 1.0)
+    q = min(max(float(q), 0.0), 1.0)
     vs = sorted(values)
     if len(vs) == 1:
         return float(vs[0])
@@ -1674,12 +1199,15 @@ def _quantile_threshold(values: List[float], q: float) -> Optional[float]:
     return float(vs[idx])
 
 
+# =============================================================================
+# HOT NOW computation
+# =============================================================================
 def _compute_hot_row_from_series(series: List[Tuple[float, float, Optional[float]]]) -> Optional[dict]:
     if not series or len(series) < 2:
         return None
 
     now_epoch = float(series[-1][0])
-    cutoff    = now_epoch - float(HOT_WINDOW_SEC)
+    cutoff = now_epoch - float(HOT_WINDOW_SEC)
 
     base = None
     for t, p, v in series:
@@ -1691,7 +1219,7 @@ def _compute_hot_row_from_series(series: List[Tuple[float, float, Optional[float
         base = (float(series[0][0]), series[0][1], series[0][2])
 
     base_t, base_p, base_v = base
-    _, last_p, last_v = series[-1]
+    _t_last, last_p, last_v = series[-1]
 
     if base_p is None or float(base_p) <= 0 or last_p is None:
         return None
@@ -1700,15 +1228,15 @@ def _compute_hot_row_from_series(series: List[Tuple[float, float, Optional[float
     if len(prices) < 2:
         return None
 
-    lo  = float(min(prices))
-    hi  = float(max(prices))
+    lo = float(min(prices))
+    hi = float(max(prices))
     rng = float(hi - lo)
 
-    base_pf        = float(base_p)
-    range_pct      = (rng / (base_pf + 1e-9)) * 100.0
-    up_spike_pct   = (hi - base_pf) / (base_pf + 1e-9) * 100.0
+    base_pf = float(base_p)
+    range_pct = (rng / (base_pf + 1e-9)) * 100.0
+    up_spike_pct = (hi - base_pf) / (base_pf + 1e-9) * 100.0
     down_spike_pct = (lo - base_pf) / (base_pf + 1e-9) * 100.0
-    spike_pct      = up_spike_pct if abs(up_spike_pct) >= abs(down_spike_pct) else down_spike_pct
+    spike_pct = up_spike_pct if abs(up_spike_pct) >= abs(down_spike_pct) else down_spike_pct
 
     vol_win = None
     if base_v is not None and last_v is not None:
@@ -1717,6 +1245,30 @@ def _compute_hot_row_from_series(series: List[Tuple[float, float, Optional[float
             vol_win = None
 
     return {"range_pct": float(range_pct), "spike_pct": float(spike_pct), "vol_win": vol_win}
+
+# =============================================================================
+# BACKGROUND COMPUTE CACHE
+# =============================================================================
+CACHE_LOCK = threading.Lock()
+CACHE: Dict[str, Any] = {
+    "sector_agg": {},
+    "top15_gainers": [],
+    "top15_losers": [],
+    "hvhr_gainers": [],
+    "hvhr_losers": [],
+    "hot_gainers": [],
+    "hot_losers": [],
+    "heatmap_rows": [],
+    "sentiment": {"adv": 0, "dec": 0, "unch": 0, "total": 0, "score": 0.0, "label": "NEUTRAL"},
+    "pcr": None,
+
+    # rolling last 5 min RVOL5 leaderboard
+    "rvol5_buy": [],
+    "rvol5_sell": [],
+    "rvol5_label": "RVOL5: collecting…",
+
+    "updated": {"core": 0.0, "hot": 0.0, "pcr": 0.0, "rvol5": 0.0},
+}
 
 
 # =============================================================================
@@ -1731,11 +1283,7 @@ def start_compute_loop_once():
         return
     _compute_started = True
 
-    # Rolling RVOL5 settings
-    RVOL5_WINDOW_SEC = 300          # last 5 minutes
-    COMPUTE_RVOL5_EVERY_SEC = 5.0   # recompute cadence
-
-    def _cumvol_at_or_before(series, cutoff_epoch: float):
+    def _cumvol_at_or_before(series: List[Tuple[float, float, Optional[float]]], cutoff_epoch: float):
         """
         series: list[(epoch, ltp, cumvol)]
         Return (base_epoch, base_cumvol) at or before cutoff.
@@ -1763,20 +1311,22 @@ def start_compute_loop_once():
 
     def _run():
         last_core = 0.0
-        last_hot  = 0.0
-        last_pcr  = 0.0
+        last_hot = 0.0
+        last_pcr = 0.0
         last_rvol5 = 0.0
 
         while True:
             now = time.time()
 
-            # ---- CORE ----
+            # --------------------
+            # CORE (RFactor, sector agg, heatmap)
+            # --------------------
             if (now - last_core) >= COMPUTE_CORE_EVERY_SEC:
                 try:
                     snap = _snapshot_state(include_hot=False)
 
-                    rr_by_tok:    Dict[int, Dict[str, float]] = {}
-                    rows_basic:   List[dict] = []
+                    rr_by_tok: Dict[int, Dict[str, float]] = {}
+                    rows_basic: List[dict] = []
                     rfactor_vals: List[float] = []
 
                     for sym in ALL_SYMBOLS:
@@ -1789,36 +1339,38 @@ def start_compute_loop_once():
 
                         rr_by_tok[tok] = rr
                         rows_basic.append({
-                            "Symbol" : sym,
+                            "Symbol": sym,
                             "%Change": round(float(rr["pct_open"]), 2),
-                            "RFactor": round(float(rr["rfactor"]),  2),
-                            "Vol"    : int(rr["vol_today"]),
+                            "RFactor": round(float(rr["rfactor"]), 2),
+                            "Vol": int(rr["vol_today"]),
                         })
                         rfactor_vals.append(float(rr["rfactor"]))
 
                     gainers = [r for r in rows_basic if float(r["%Change"]) > 0]
-                    losers  = [r for r in rows_basic if float(r["%Change"]) < 0]
+                    losers = [r for r in rows_basic if float(r["%Change"]) < 0]
                     gainers.sort(key=lambda r: float(r["RFactor"]), reverse=True)
-                    losers.sort(key=lambda r:  float(r["RFactor"]), reverse=True)
+                    losers.sort(key=lambda r: float(r["RFactor"]), reverse=True)
+
                     top15_gainers = gainers[:15]
-                    top15_losers  = losers[:15]
+                    top15_losers = losers[:15]
 
                     thr = _quantile_threshold(rfactor_vals, float(HVHR_RFACTOR_Q)) if rfactor_vals else None
                     if thr is None:
                         hvhr_gainers, hvhr_losers = [], []
                     else:
-                        bucket   = [r for r in rows_basic if float(r["RFactor"]) >= float(thr)]
+                        bucket = [r for r in rows_basic if float(r["RFactor"]) >= float(thr)]
                         bucket_g = [r for r in bucket if float(r["%Change"]) > 0]
                         bucket_l = [r for r in bucket if float(r["%Change"]) < 0]
                         bucket_g.sort(key=lambda r: (int(r["Vol"]), float(r["RFactor"])), reverse=True)
                         bucket_l.sort(key=lambda r: (int(r["Vol"]), float(r["RFactor"])), reverse=True)
                         hvhr_gainers = bucket_g[: int(HVHR_N)]
-                        hvhr_losers  = bucket_l[: int(HVHR_N)]
+                        hvhr_losers = bucket_l[: int(HVHR_N)]
 
                     sector_agg = _compute_sector_aggregates_from_rr_with_daily(
-                        rr_by_tok = rr_by_tok,
-                        daily_map = (snap.get("daily") or {}),
+                        rr_by_tok=rr_by_tok,
+                        daily_map=(snap.get("daily") or {}),
                     )
+
                     sentiment = _compute_market_sentiment_proxy_snap(snap)
 
                     sector_order = sorted(
@@ -1847,43 +1399,46 @@ def start_compute_loop_once():
                             rr = rr_by_tok.get(tok)
                             if not rr:
                                 continue
-                            ltp_     = float(rr["ltp"])
-                            vol_     = float(rr["vol_today"])
+                            ltp_ = float(rr["ltp"])
+                            vol_ = float(rr["vol_today"])
                             turnover = ltp_ * vol_
                             if turnover <= 0:
                                 continue
                             heat_rows.append({
-                                "sector_key"  : sec,
+                                "sector_key": sec,
                                 "sector_label": sec.replace("_", " ").upper(),
-                                "symbol"      : sym,
-                                "pct"         : float(rr["pct_open"]),
-                                "dirr"        : float(rr["dirr"]),
-                                "value"       : float(turnover),
+                                "symbol": sym,
+                                "pct": float(rr["pct_open"]),
+                                "dirr": float(rr["dirr"]),
+                                "value": float(turnover),
                             })
 
                     with CACHE_LOCK:
-                        CACHE["sector_agg"]      = sector_agg
-                        CACHE["top15_gainers"]   = top15_gainers
-                        CACHE["top15_losers"]    = top15_losers
-                        CACHE["hvhr_gainers"]    = hvhr_gainers
-                        CACHE["hvhr_losers"]     = hvhr_losers
-                        CACHE["sentiment"]       = sentiment
-                        CACHE["heatmap_rows"]    = heat_rows
+                        CACHE["sector_agg"] = sector_agg
+                        CACHE["top15_gainers"] = top15_gainers
+                        CACHE["top15_losers"] = top15_losers
+                        CACHE["hvhr_gainers"] = hvhr_gainers
+                        CACHE["hvhr_losers"] = hvhr_losers
+                        CACHE["sentiment"] = sentiment
+                        CACHE["heatmap_rows"] = heat_rows
                         CACHE["updated"]["core"] = now
 
                 except Exception:
                     log.exception("compute loop: CORE crashed")
+
                 last_core = now
 
-            # ---- HOT NOW ----
+            # --------------------
+            # HOT NOW
+            # --------------------
             if (now - last_hot) >= COMPUTE_HOT_EVERY_SEC:
                 try:
                     snap = _snapshot_state(include_hot=True)
-                    hot  = snap.get("hot") or {}
+                    hot = snap.get("hot") or {}
 
-                    rows      = []
+                    rows = []
                     min_spike = float(HOT_MIN_RET_PCT)
-                    min_rng   = float(HOT_MIN_RANGE_PCT)
+                    min_rng = float(HOT_MIN_RANGE_PCT)
 
                     for sym in ALL_SYMBOLS:
                         tok = symbol_to_token.get(sym)
@@ -1895,17 +1450,17 @@ def start_compute_loop_once():
                         hr = _compute_hot_row_from_series(series)
                         if not hr:
                             continue
-                        spike     = float(hr["spike_pct"])
+                        spike = float(hr["spike_pct"])
                         range_pct = float(hr["range_pct"])
                         if abs(spike) < min_spike or range_pct < min_rng:
                             continue
                         rows.append({
-                            "Symbol"    : sym,
-                            "_spike"    : spike,
+                            "Symbol": sym,
+                            "_spike": spike,
                             "_abs_spike": abs(spike),
-                            "SPIKE%"    : round(spike, 2),
-                            "RNG5%"     : round(range_pct, 2),
-                            "DAY RNG%"  : None,
+                            "SPIKE%": round(spike, 2),
+                            "RNG5%": round(range_pct, 2),
+                            "DAY RNG%": None,
                         })
 
                     gain = [r for r in rows if float(r["_spike"]) > 0]
@@ -1914,29 +1469,35 @@ def start_compute_loop_once():
                     loss.sort(key=lambda r: (float(r["_abs_spike"]), float(r["RNG5%"])), reverse=True)
 
                     hot_gainers = [{k: v for k, v in r.items() if not k.startswith("_")} for r in gain[:15]]
-                    hot_losers  = [{k: v for k, v in r.items() if not k.startswith("_")} for r in loss[:15]]
+                    hot_losers = [{k: v for k, v in r.items() if not k.startswith("_")} for r in loss[:15]]
 
                     with CACHE_LOCK:
-                        CACHE["hot_gainers"]    = hot_gainers
-                        CACHE["hot_losers"]     = hot_losers
+                        CACHE["hot_gainers"] = hot_gainers
+                        CACHE["hot_losers"] = hot_losers
                         CACHE["updated"]["hot"] = now
 
                 except Exception:
                     log.exception("compute loop: HOT crashed")
+
                 last_hot = now
 
-            # ---- PCR ----
+            # --------------------
+            # PCR
+            # --------------------
             if (now - last_pcr) >= COMPUTE_PCR_EVERY_SEC:
                 try:
                     p = compute_real_nifty_oi_pcr(strikes_around_atm=PCR_STRIKES_AROUND_ATM)
                     with CACHE_LOCK:
-                        CACHE["pcr"]            = p
+                        CACHE["pcr"] = p
                         CACHE["updated"]["pcr"] = now
                 except Exception:
                     log.exception("compute loop: PCR crashed")
+
                 last_pcr = now
 
-            # ---- ROLLING RVOL5 (LAST 5 MIN) ----
+            # --------------------
+            # ROLLING RVOL5 (last 5 min window)
+            # --------------------
             if (now - last_rvol5) >= COMPUTE_RVOL5_EVERY_SEC:
                 try:
                     now_ist = datetime.now(IST)
@@ -1946,6 +1507,7 @@ def start_compute_loop_once():
                             CACHE["rvol5_buy"] = []
                             CACHE["rvol5_sell"] = []
                             CACHE["rvol5_label"] = "RVOL5: market closed"
+                            CACHE["updated"]["rvol5"] = now
                     else:
                         snap = _snapshot_state(include_hot=False)
                         daily_map = snap.get("daily") or {}
@@ -1961,10 +1523,10 @@ def start_compute_loop_once():
                             if not tok:
                                 continue
 
-                            ltp  = (snap.get("price") or {}).get(tok)
-                            cvol = (snap.get("vol")   or {}).get(tok)
-                            ohlc = (snap.get("ohlc")  or {}).get(tok) or {}
-                            op   = ohlc.get("open")
+                            ltp = (snap.get("price") or {}).get(tok)
+                            cvol = (snap.get("vol") or {}).get(tok)
+                            ohlc = (snap.get("ohlc") or {}).get(tok) or {}
+                            op = ohlc.get("open")
 
                             if ltp is None or cvol is None or op is None:
                                 continue
@@ -1974,7 +1536,6 @@ def start_compute_loop_once():
                             if not avg_vol_20 or float(avg_vol_20) <= 0:
                                 continue
 
-                            # Use HOT_HISTORY to get cumvol ~5 minutes ago
                             with LOCK:
                                 dq = HOT_HISTORY.get(tok)
                                 series = list(dq) if dq else None
@@ -1994,7 +1555,7 @@ def start_compute_loop_once():
                             then_ist = now_ist - timedelta(seconds=eff_sec)
 
                             tf_then = _time_factor_ist_for_rvol(then_ist)
-                            frac = max(1e-4, float(tf_now) - float(tf_then))  # expected fraction in this rolling window
+                            frac = max(1e-4, float(tf_now) - float(tf_then))
 
                             exp5 = float(avg_vol_20) * float(frac)
                             rvol5 = float(vol5) / (float(exp5) + 1e-9)
@@ -2004,7 +1565,7 @@ def start_compute_loop_once():
                             row = {
                                 "Symbol": sym,
                                 "%Change": round(float(pct_open), 2),
-                                "RVOL5": round(float(rvol5), 2),   # numeric -> sorts properly
+                                "RVOL5": float(round(rvol5, 2)),  # numeric keeps correct sort
                                 "Vol5": int(vol5),
                             }
 
@@ -2020,9 +1581,11 @@ def start_compute_loop_once():
                             CACHE["rvol5_buy"] = buy_rows[:15]
                             CACHE["rvol5_sell"] = sell_rows[:15]
                             CACHE["rvol5_label"] = f"RVOL5 rolling 5m • {now_ist.strftime('%H:%M:%S')}"
+                            CACHE["updated"]["rvol5"] = now
 
                 except Exception:
                     log.exception("compute loop: RVOL5 crashed")
+
                 last_rvol5 = now
 
             time.sleep(COMPUTE_SLEEP_SEC)
@@ -2047,7 +1610,7 @@ def start_ticker_once():
             try:
                 kws = KiteTicker(API_KEY, ACCESS_TOKEN)
 
-                def on_connect(ws, _):
+                def on_connect(ws, _resp):
                     log.info("WS CONNECTED")
                     ws.subscribe(TOKENS)
                     ws.set_mode(ws.MODE_FULL, TOKENS)
@@ -2065,7 +1628,7 @@ def start_ticker_once():
                         log.exception("on_ticks crashed")
 
                 kws.on_connect = on_connect
-                kws.on_ticks   = on_ticks
+                kws.on_ticks = on_ticks
                 kws.connect(threaded=True)
 
                 while True:
@@ -2083,7 +1646,7 @@ def start_ticker_once():
 # =============================================================================
 dash_app = dash.Dash(
     __name__,
-    external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.BOOTSTRAP],  # <-- add this
+    external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.BOOTSTRAP],
     requests_pathname_prefix=BASE,
     routes_pathname_prefix="/",
     assets_folder=os.path.join(os.path.dirname(__file__), "assets"),
@@ -2131,115 +1694,47 @@ def _extract_sector_from_path(pn: str) -> Optional[str]:
 
 def _sector_modal_coldefs_desktop():
     return [
+        {"field": "Symbol", "headerName": "STOCK", "minWidth": 120, "flex": 1, "cellRenderer": "SymbolCell"},
+        {"field": "Company", "headerName": "COMPANY", "minWidth": 180, "flex": 2, "cellRenderer": "CompanyLinkCell"},
         {
-            "field": "Symbol",
-            "headerName": "STOCK",
-            "minWidth": 120,
-            "flex": 1,
-            "cellRenderer": "SymbolCell",
-        },
-        {
-            "field": "Company",
-            "headerName": "COMPANY",
-            "minWidth": 180,
-            "flex": 2,
-            "cellRenderer": "CompanyLinkCell",
-        },
-        {
-            "field": "DirR",
-            "headerName": "MOMENTUM",
-            "minWidth": 110,
-            "flex": 1,
-            "type": "rightAligned",
+            "field": "DirR", "headerName": "MOMENTUM", "minWidth": 110, "flex": 1, "type": "rightAligned",
             "cellRenderer": "Num2Cell",
             "cellClassRules": {"cell-pos": "params.value > 0", "cell-neg": "params.value < 0"},
         },
+        {"field": "Price", "headerName": "PRICE", "minWidth": 110, "flex": 1, "type": "rightAligned", "cellRenderer": "Num2Cell"},
         {
-            "field": "Price",
-            "headerName": "PRICE",
-            "minWidth": 110,
-            "flex": 1,
-            "type": "rightAligned",
-            "cellRenderer": "Num2Cell",
-        },
-        {
-            "field": "%Change",
-            "headerName": "%CHG",
-            "minWidth": 110,
-            "flex": 1,
-            "type": "rightAligned",
+            "field": "%Change", "headerName": "%CHG", "minWidth": 110, "flex": 1, "type": "rightAligned",
             "cellRenderer": "Pct2Cell",
             "cellClassRules": {"cell-pos": "params.value > 0", "cell-neg": "params.value < 0"},
         },
-
-        # --- REPLACED Gap% with RVOLm5 (rolling last-5-min RVOL) ---
         {
-            "field": "RVOL5",
-            "headerName": "RVOLm5",
-            "minWidth": 110,
-            "flex": 1,
-            "type": "rightAligned",
+            "field": "RVOL5", "headerName": "RVOLm5", "minWidth": 110, "flex": 1, "type": "rightAligned",
             "valueFormatter": {"function": "params.value == null ? '—' : (params.value.toFixed(1) + 'x')"},
         },
-
-        # keep paced day RVOLm
-        {
-            "field": "RVOLm",
-            "headerName": "RVOLm",
-            "minWidth": 100,
-            "flex": 1,
-            "type": "rightAligned",
-            "cellRenderer": "Num2Cell",
-        },
+        {"field": "RVOLm", "headerName": "RVOLm", "minWidth": 100, "flex": 1, "type": "rightAligned", "cellRenderer": "Num2Cell"},
     ]
 
 
 def _sector_modal_coldefs_mobile():
     return [
+        {"field": "Symbol", "headerName": "STOCK", "minWidth": 92, "flex": 2, "cellRenderer": "SymbolCell"},
         {
-            "field": "Symbol",
-            "headerName": "STOCK",
-            "minWidth": 92,
-            "flex": 2,
-            "cellRenderer": "SymbolCell",
-        },
-        {
-            "field": "DirR",
-            "headerName": "MOMENTUM",
-            "minWidth": 88,
-            "flex": 1,
-            "type": "rightAligned",
+            "field": "DirR", "headerName": "MOMENTUM", "minWidth": 88, "flex": 1, "type": "rightAligned",
             "cellRenderer": "Num2Cell",
             "cellClassRules": {"cell-pos": "params.value > 0", "cell-neg": "params.value < 0"},
         },
+        {"field": "Price", "headerName": "Price", "minWidth": 72, "flex": 1, "type": "rightAligned", "cellRenderer": "Num2Cell"},
         {
-            "field": "Price",
-            "headerName": "Price",
-            "minWidth": 72,
-            "flex": 1,
-            "type": "rightAligned",
-            "cellRenderer": "Num2Cell",
-        },
-        {
-            "field": "%Change",
-            "headerName": "%CHG",
-            "minWidth": 72,
-            "flex": 1,
-            "type": "rightAligned",
+            "field": "%Change", "headerName": "%CHG", "minWidth": 72, "flex": 1, "type": "rightAligned",
             "cellRenderer": "Pct2Cell",
             "cellClassRules": {"cell-pos": "params.value > 0", "cell-neg": "params.value < 0"},
         },
-
-        # show RVOLm5 on mobile
         {
-            "field": "RVOL5",
-            "headerName": "RVOLm5",
-            "minWidth": 76,
-            "flex": 1,
-            "type": "rightAligned",
+            "field": "RVOL5", "headerName": "RVOLm5", "minWidth": 76, "flex": 1, "type": "rightAligned",
             "valueFormatter": {"function": "params.value == null ? '—' : (params.value.toFixed(1) + 'x')"},
         },
     ]
+
 
 def sector_modal_component():
     grid_opts_desktop = {
@@ -2264,13 +1759,7 @@ def sector_modal_component():
         [
             html.Div(id="sector-modal-title", className="tt-modal-title", children="SECTOR"),
             dcc.Link(
-                dbc.Button(
-                    "Close",
-                    color="secondary",
-                    outline=True,
-                    size="sm",
-                    className="tt-modal-close-btn",
-                ),
+                dbc.Button("Close", color="secondary", outline=True, size="sm", className="tt-modal-close-btn"),
                 href=BASE,
                 refresh=False,
             ),
@@ -2284,37 +1773,25 @@ def sector_modal_component():
             dbc.ModalBody(
                 html.Div(
                     [
-                        # DESKTOP GRID
                         html.Div(
                             dag.AgGrid(
                                 id="sector-modal-grid",
                                 className="ag-theme-alpine-dark tt-modal-grid",
                                 columnDefs=_sector_modal_coldefs_desktop(),
                                 rowData=[],
-                                defaultColDef={
-                                    "sortable": True,
-                                    "filter": True,
-                                    "resizable": True,
-                                    "flex": 1,
-                                },
+                                defaultColDef={"sortable": True, "filter": True, "resizable": True, "flex": 1},
                                 dashGridOptions=grid_opts_desktop,
                                 style={"height": "65vh", "width": "100%"},
                             ),
                             className="desktop-only",
                         ),
-                        # MOBILE GRID
                         html.Div(
                             dag.AgGrid(
                                 id="sector-modal-grid-m",
                                 className="ag-theme-alpine-dark tt-modal-grid",
                                 columnDefs=_sector_modal_coldefs_mobile(),
                                 rowData=[],
-                                defaultColDef={
-                                    "sortable": True,
-                                    "filter": False,
-                                    "resizable": True,
-                                    "flex": 1,
-                                },
+                                defaultColDef={"sortable": True, "filter": False, "resizable": True, "flex": 1},
                                 dashGridOptions=grid_opts_mobile,
                                 style={"height": "72vh", "width": "100%"},
                             ),
@@ -2339,97 +1816,33 @@ def sector_modal_component():
 # =============================================================================
 def sectors_page():
     top15_cols_desktop = [
-        {
-            "field": "Symbol",
-            "headerName": "STOCK",
-            "cellRenderer": "SymbolCell",
-            "minWidth": 140,
-            "flex": 2,
-            "headerClass": "h-left",
-            "cellClass": "c-left",
-        },
-        {
-            "field": "%Change",
-            "headerName": "%CHG",
-            "cellRenderer": "PctPill",
-            "minWidth": 110,
-            "flex": 1,
-            "headerClass": "ag-right-aligned-header",
-            "cellClass": "ag-right-aligned-cell",
-        },
-        {
-            "field": "RFactor",
-            "headerName": "MOMENTUM",
-            "cellRenderer": "RfactorPill",
-            "minWidth": 110,
-            "flex": 1,
-            "headerClass": "ag-right-aligned-header",
-            "cellClass": "ag-right-aligned-cell",
-        },
-        {
-            "field": "Vol",
-            "headerName": "VOLUME",
-            "cellRenderer": "VolPill",
-            "minWidth": 120,
-            "flex": 1,
-            "headerClass": "ag-right-aligned-header",
-            "cellClass": "ag-right-aligned-cell",
-        },
+        {"field": "Symbol", "headerName": "STOCK", "cellRenderer": "SymbolCell", "minWidth": 140, "flex": 2,
+         "headerClass": "h-left", "cellClass": "c-left"},
+        {"field": "%Change", "headerName": "%CHG", "cellRenderer": "PctPill", "minWidth": 110, "flex": 1,
+         "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
+        {"field": "RFactor", "headerName": "MOMENTUM", "cellRenderer": "RfactorPill", "minWidth": 110, "flex": 1,
+         "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
+        {"field": "Vol", "headerName": "VOLUME", "cellRenderer": "VolPill", "minWidth": 120, "flex": 1,
+         "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
     ]
 
     top15_cols_mobile = [
-        {
-            "field": "Symbol",
-            "headerName": "STOCK",
-            "cellRenderer": "SymbolCell",
-            "minWidth": 88,
-            "flex": 2,
-            "headerClass": "h-left",
-            "cellClass": "c-left",
-        },
-        {
-            "field": "%Change",
-            "headerName": "%CHG",
-            "cellRenderer": "PctPill",
-            "minWidth": 70,
-            "flex": 1,
-            "headerClass": "ag-right-aligned-header",
-            "cellClass": "ag-right-aligned-cell",
-        },
-        {
-            "field": "RFactor",
-            "headerName": "MOMENTUM",
-            "cellRenderer": "RfactorPill",
-            "minWidth": 74,
-            "flex": 1,
-            "headerClass": "ag-right-aligned-header",
-            "cellClass": "ag-right-aligned-cell",
-        },
-        {
-            "field": "Vol",
-            "headerName": "VOL",
-            "cellRenderer": "VolPill",
-            "minWidth": 78,
-            "flex": 1,
-            "headerClass": "ag-right-aligned-header",
-            "cellClass": "ag-right-aligned-cell",
-        },
+        {"field": "Symbol", "headerName": "STOCK", "cellRenderer": "SymbolCell", "minWidth": 88, "flex": 2,
+         "headerClass": "h-left", "cellClass": "c-left"},
+        {"field": "%Change", "headerName": "%CHG", "cellRenderer": "PctPill", "minWidth": 70, "flex": 1,
+         "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
+        {"field": "RFactor", "headerName": "MOMENTUM", "cellRenderer": "RfactorPill", "minWidth": 74, "flex": 1,
+         "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
+        {"field": "Vol", "headerName": "VOL", "cellRenderer": "VolPill", "minWidth": 78, "flex": 1,
+         "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
     ]
 
-    grid_options_desktop = {
-        "getRowId": {"function": "params.data.Symbol"},
-        "animateRows": False,
-        "rowHeight": 40,
-        "headerHeight": 40,
-        "domLayout": "normal",
-    }
-
+    grid_options_desktop = {"getRowId": {"function": "params.data.Symbol"}, "animateRows": False, "rowHeight": 40, "headerHeight": 40}
     grid_options_mobile = {
         "getRowId": {"function": "params.data.Symbol"},
         "animateRows": False,
         "rowHeight": 40,
         "headerHeight": 38,
-        "domLayout": "normal",
         "onGridReady": {"function": "setTimeout(() => params.api.sizeColumnsToFit(), 80);"},
         "onGridSizeChanged": {"function": "setTimeout(() => params.api.sizeColumnsToFit(), 80);"},
     }
@@ -2453,45 +1866,51 @@ def sectors_page():
                 [
                     dbc.Col(html.H4("Sectors", className="page-title page-title--pill mb-0"), width="auto"),
                     dbc.Col(
-    html.Div(
-        [
-            # DESKTOP: keep radio buttons
-            html.Div(
-                dbc.RadioItems(
-                    id="sectors-sort",
-                    options=[
-                        {"label": "Sort: RVOLm",      "value": "RVOLm"},
-                        {"label": "Sort: RVOLm Mean", "value": "RVOLmMean"},
-                         {"label": "Sort: RVOLm5 Mean",  "value": "RVOL5"}, 
-                        {"label": "Sort: Momentum",   "value": "DirR"},
-                    ],
-                    value="DirR",
-                    inline=True,
-                    className="sectors-sort ms-2",
-                ),
-                className="desktop-only",
-            ),
-
-            # MOBILE: dropdown with all 3
-            html.Div(
-                dbc.Select(
-                    id="sectors-sort-dd",
-                    options=[
-                        {"label": "RVOLm",      "value": "RVOLm"},
-                        {"label": "RVOLm Mean", "value": "RVOLmMean"},
-                          {"label": "RVOLm5 Mean",  "value": "RVOL5"}, 
-                        {"label": "Momentum",   "value": "DirR"},
-                    ],
-                    value="DirR",
-                    size="sm",
-                    className="sectors-sort-dd",
-                ),
-                className="mobile-only",
-            ),
-        ]
-    ),
-    width=True,
-),
+                        html.Div(
+                            [
+                                html.Div(
+                                    dbc.RadioItems(
+                                        id="sectors-sort",
+                                        options=[
+                                            {"label": "Sort: RVOLm", "value": "RVOLm"},
+                                            {"label": "Sort: RVOLm Mean", "value": "RVOLmMean"},
+                                            {"label": "Sort: RVOLm5 Mean", "value": "RVOL5Mean"},
+                                            {"label": "Sort: Momentum", "value": "DirR"},
+                                        ],
+                                        value="DirR",
+                                        inline=True,
+                                        className="sectors-sort ms-2",
+                                    ),
+                                    className="desktop-only",
+                                ),
+                                html.Div(
+                                    dbc.Select(
+                                        id="sectors-sort-dd",
+                                        options=[
+                                            {"label": "RVOLm", "value": "RVOLm"},
+                                            {"label": "RVOLm Mean", "value": "RVOLmMean"},
+                                            {"label": "RVOLm5 Mean", "value": "RVOL5Mean"},
+                                            {"label": "Momentum", "value": "DirR"},
+                                        ],
+                                        value="DirR",
+                                        size="sm",
+                                        className="sectors-sort-dd",
+                                    ),
+                                    className="mobile-only",
+                                ),
+                                dbc.Button(
+                                    html.I(className="bi bi-sliders2-vertical"),
+                                    id="baseline-toggle",
+                                    color="secondary",
+                                    outline=True,
+                                    size="sm",
+                                    className="ms-2",
+                                ),
+                            ],
+                            className="d-flex align-items-center justify-content-start flex-wrap gap-2",
+                        ),
+                        width=True,
+                    ),
                 ],
                 className="align-items-center g-2 mb-2",
             ),
@@ -2499,7 +1918,6 @@ def sectors_page():
             html.Div(id="sector-bars", className="sector-bars-wrap"),
             html.Hr(),
 
-            # DESKTOP VIEW
             html.Div(
                 dbc.Row(
                     [
@@ -2523,18 +1941,13 @@ def sectors_page():
                 className="desktop-only",
             ),
 
-            # MOBILE VIEW (TABS)
             html.Div(
                 dbc.Tabs(
                     [
-                        dbc.Tab(
-                            label="Top 15 Gainers",
-                            children=build_grid("top15-gainers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile),
-                        ),
-                        dbc.Tab(
-                            label="Top 15 Losers",
-                            children=build_grid("top15-losers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile),
-                        ),
+                        dbc.Tab(label="Top 15 Gainers",
+                                children=build_grid("top15-gainers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile)),
+                        dbc.Tab(label="Top 15 Losers",
+                                children=build_grid("top15-losers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile)),
                     ],
                     className="top15-tabs",
                 ),
@@ -2542,8 +1955,6 @@ def sectors_page():
             ),
 
             html.Hr(),
-
-            # HEATMAP
             html.H6("Heatmap"),
             dcc.Graph(
                 id="market-heatmap",
@@ -2552,136 +1963,34 @@ def sectors_page():
             ),
 
             html.Hr(),
-
-            # DIALS
-            dbc.Row(
-                [
-                    dbc.Col(dial_component("sentiment", "BIAS"), md=6),
-                    dbc.Col(dial_component("pcr", "PCR"), md=6),
-                ],
-                className="g-3",
-            ),
+            dbc.Row([dbc.Col(dial_component("sentiment", "BIAS"), md=6),
+                     dbc.Col(dial_component("pcr", "PCR"), md=6)],
+                    className="g-3"),
         ],
         className="page-wrap",
     )
 
 
-def top15_buy_sell_rvolm_rows(n: int = 15):
-    snap = _snapshot_state(include_hot=False)
-    tf   = _time_factor_ist_for_rvol(datetime.now(IST))
-    buy  = []
-    sell = []
-
-    for sym in ALL_SYMBOLS:
-        tok = symbol_to_token.get(sym)
-        if not tok:
-            continue
-
-        st = _get_live_or_eod_state_from_snap(tok, snap)
-        if not st:
-            continue
-
-        ltp, vol_today, ohlc = st
-        op = (ohlc or {}).get("open")
-        if op is None:
-            continue
-
-        try:
-            ltp       = float(ltp)
-            vol_today = float(vol_today)
-            op        = float(op)
-        except Exception:
-            continue
-
-        if op <= 0:
-            continue
-
-        st20 = (snap.get("daily") or {}).get(tok) or {}
-        avg_vol_20 = st20.get("avg_vol_20")
-        try:
-            avg_vol_20 = float(avg_vol_20) if avg_vol_20 is not None else None
-        except Exception:
-            avg_vol_20 = None
-
-        if not avg_vol_20 or avg_vol_20 <= 0:
-            continue
-
-        pct_open = (ltp - op) / op * 100.0
-        expected = avg_vol_20 * tf
-        rvolm    = vol_today / (expected + 1e-9)
-
-        row = {
-            "Symbol" : sym,
-            "%Change": round(float(pct_open), 2),
-            "RVOLm"  : round(float(rvolm), 2),
-            "Vol"    : int(vol_today),
-        }
-
-        if pct_open >= 0:
-            buy.append(row)
-        else:
-            sell.append(row)
-
-    buy.sort(key=lambda x:  float(x.get("RVOLm") or 0.0), reverse=True)
-    sell.sort(key=lambda x: float(x.get("RVOLm") or 0.0), reverse=True)
-    return buy[:n], sell[:n]
-
-
 def volm_page():
     cols = [
-        {
-            "colId": "stock",
-            "field": "Symbol",
-            "headerName": "STOCK",
-            "cellRenderer": "SymbolCell",
-            "minWidth": 140,
-            "maxWidth": 170,
-            "suppressSizeToFit": True,
-            "headerClass": "h-left",
-            "cellClass": "c-left",
-        },
-        {
-            "colId": "pct",
-            "field": "%Change",
-            "headerName": "%CHG",
-            "cellRenderer": "PctPill",
-            "minWidth": 140,
-            "maxWidth": 150,
-            "suppressSizeToFit": True,
-            "headerClass": "ag-right-aligned-header h-right",
-            "cellClass": "ag-right-aligned-cell cell-num c-right",
-        },
-        {
-            "colId": "rvol5",
-            "field": "RVOL5",
-            "headerName": "RVOL5",
-            # Show like 1.2x, 3.8x (still sorts numerically)
-            "valueFormatter": {"function": "params.value == null ? '—' : (params.value.toFixed(1) + 'x')"},
-            "minWidth": 120,
-            "maxWidth": 140,
-            "suppressSizeToFit": True,
-            "type": "rightAligned",
-            "headerClass": "ag-right-aligned-header h-right",
-            "cellClass": "ag-right-aligned-cell cell-num c-right",
-        },
-        {
-            "colId": "vol5",
-            "field": "Vol5",
-            "headerName": "VOL5",
-            "cellRenderer": "VolPill",
-            "minWidth": 150,
-            "maxWidth": 190,
-            "suppressSizeToFit": True,
-            "headerClass": "ag-right-aligned-header h-right",
-            "cellClass": "ag-right-aligned-cell cell-num c-right",
-        },
+        {"colId": "stock", "field": "Symbol", "headerName": "STOCK", "cellRenderer": "SymbolCell",
+         "minWidth": 140, "maxWidth": 170, "suppressSizeToFit": True, "headerClass": "h-left", "cellClass": "c-left"},
+        {"colId": "pct", "field": "%Change", "headerName": "%CHG", "cellRenderer": "PctPill",
+         "minWidth": 140, "maxWidth": 150, "suppressSizeToFit": True,
+         "headerClass": "ag-right-aligned-header h-right", "cellClass": "ag-right-aligned-cell cell-num c-right"},
+        {"colId": "rvol5", "field": "RVOL5", "headerName": "RVOL5",
+         "valueFormatter": {"function": "params.value == null ? '—' : (params.value.toFixed(1) + 'x')"},
+         "minWidth": 120, "maxWidth": 140, "suppressSizeToFit": True, "type": "rightAligned",
+         "headerClass": "ag-right-aligned-header h-right", "cellClass": "ag-right-aligned-cell cell-num c-right"},
+        {"colId": "vol5", "field": "Vol5", "headerName": "VOL5", "cellRenderer": "VolPill",
+         "minWidth": 150, "maxWidth": 190, "suppressSizeToFit": True,
+         "headerClass": "ag-right-aligned-header h-right", "cellClass": "ag-right-aligned-cell cell-num c-right"},
     ]
 
     grid_opts = {
         "getRowId": {"function": "params.data.Symbol"},
         "alwaysShowVerticalScroll": False,
         "animateRows": False,
-        "suppressMenuHide": False,
         "onGridReady": {"function": "params.api.sizeColumnsToFit();"},
         "onGridSizeChanged": {"function": "params.api.sizeColumnsToFit();"},
     }
@@ -2692,16 +2001,12 @@ def volm_page():
 
             dbc.Row(
                 [
-                    dbc.Col(
-                        dcc.Link("← Back", href=BASE, className="stat-chip", style={"textDecoration": "none"}),
-                        width="auto",
-                    ),
+                    dbc.Col(dcc.Link("← Back", href=BASE, className="stat-chip", style={"textDecoration": "none"}), width="auto"),
                     dbc.Col(html.H4("Volm (Rolling RVOL5)", className="page-title mb-0"), width=True),
                 ],
                 className="align-items-center g-2 mb-1",
             ),
 
-            # rolling window label from cache
             html.Div(id="rvol5-label", className="hint mb-2"),
 
             dbc.Row(
@@ -2743,6 +2048,7 @@ def volm_page():
         className="page-wrap",
     )
 
+
 # =============================================================================
 # DASH ROOT LAYOUT
 # =============================================================================
@@ -2751,72 +2057,60 @@ dash_app.layout = dbc.Container(
     children=[
         dcc.Location(id="url"),
         dcc.Store(id="page-store"),
+        dcc.Store(id="baseline-store", data="AUTO"),  # AUTO or CENTER
         dcc.Interval(id="top_refresh", interval=1000, n_intervals=0),
 
         html.Div(
-    dbc.Row(
-        [
-            # BRAND
-            dbc.Col(
-                html.Div(
-                    [html.Img(src=dash.get_asset_url("turbotrades.svg"), className="tt-logo")],
-                    className="tt-brand",
-                ),
-                width="auto",
-                className="top-brand-col",
+            dbc.Row(
+                [
+                    dbc.Col(
+                        html.Div([html.Img(src=dash.get_asset_url("turbotrades.svg"), className="tt-logo")], className="tt-brand"),
+                        width="auto",
+                        className="top-brand-col",
+                    ),
+                    dbc.Col(
+                        html.Div(id="top-stats"),
+                        width=True,
+                        className="top-stats-col",
+                        style={"minWidth": 0},
+                    ),
+                    dbc.Col(
+                        html.Button(
+                            [html.I(className="bi bi-sun icon-sun", **{"aria-hidden": "true"}),
+                             html.I(className="bi bi-moon-stars icon-moon", **{"aria-hidden": "true"})],
+                            id="themeToggle",
+                            className="theme-toggle",
+                            type="button",
+                            title="Toggle theme",
+                            **{"aria-label": "Toggle theme"},
+                        ),
+                        width="auto",
+                        className="top-theme-col",
+                    ),
+                    dbc.Col(
+                        dbc.Button(
+                            "LogOff",
+                            href="/auth/logout",
+                            external_link=True,
+                            color="danger",
+                            outline=True,
+                            size="sm",
+                            className="tt-logout-btn",
+                            style={"fontWeight": "700"},
+                        ),
+                        width="auto",
+                        className="top-logoff-col",
+                    ),
+                ],
+                className="topbar-row align-items-center g-2",
             ),
-
-            # CHIPS
-            dbc.Col(
-                html.Div(id="top-stats"),
-                width=True,
-                className="top-stats-col",
-                style={"minWidth": 0},  # IMPORTANT: allows flex shrink / prevents wrap bugs
-            ),
-
-            # THEME TOGGLE
-            dbc.Col(
-                html.Button(
-                    [
-                        html.I(className="bi bi-sun icon-sun", **{"aria-hidden": "true"}),
-                        html.I(className="bi bi-moon-stars icon-moon", **{"aria-hidden": "true"}),
-                    ],
-                    id="themeToggle",
-                    className="theme-toggle",
-                    type="button",
-                    title="Toggle theme",
-                    **{"aria-label": "Toggle theme"},
-                ),
-                width="auto",
-                className="top-theme-col",
-            ),
-
-            # LOGOFF
-            dbc.Col(
-                dbc.Button(
-                    "LogOff",
-                    href="/auth/logout",
-                    external_link=True,
-                    color="danger",
-                    outline=True,
-                    size="sm",
-                    className="tt-logout-btn",
-                    style={"fontWeight": "700"},
-                ),
-                width="auto",
-                className="top-logoff-col",
-            ),
-        ],
-        className="topbar-row align-items-center g-2",
-    ),
-    className="topbar-wrap",
-),
+            className="topbar-wrap",
+        ),
 
         html.Div(id="app-body"),
         sector_modal_component(),
     ],
 )
-
 
 # =============================================================================
 # ROUTER
@@ -2824,7 +2118,7 @@ dash_app.layout = dbc.Container(
 def _classify_page(pathname: str) -> str:
     pn = (pathname or "").strip() or "/"
     volm_paths = {"/volm", "/volm/", f"{BASE}volm", f"{BASE}volm/"}
-    oi_paths   = {"/openinterest", "/openinterest/", f"{BASE}openinterest", f"{BASE}openinterest/"}
+    oi_paths = {"/openinterest", "/openinterest/", f"{BASE}openinterest", f"{BASE}openinterest/"}
 
     if pn in volm_paths:
         return "volm"
@@ -2872,10 +2166,10 @@ def _oi_inference_chip():
         s = {}
 
     baseline_ok = (s.get("baseline_price") is not None) and (s.get("baseline_oi") is not None)
-    bt_raw      = (s.get("buildup_type") or "NO_CLEAR")
-    bt          = bt_raw.replace("_", " ")
-    bias        = (s.get("bias") or "NEUTRAL").upper()
-    label       = s.get("label") or ""
+    bt_raw = (s.get("buildup_type") or "NO_CLEAR")
+    bt = bt_raw.replace("_", " ")
+    bias = (s.get("bias") or "NEUTRAL").upper()
+    label = s.get("label") or ""
 
     if not baseline_ok:
         return html.Div("OI: WAITING BASELINE", className="stat-chip", title=label)
@@ -2897,22 +2191,22 @@ def update_top_stats(_):
     updated_str = datetime.now(IST).strftime("%H:%M:%S")
 
     with LOCK:
-        offline  = (time.time() - LAST_TICK_TS) > 10 if LAST_TICK_TS else True
-        tot      = TOTAL_TICKS
-        d_done   = DAILY_SEED_DONE
+        offline = (time.time() - LAST_TICK_TS) > 10 if LAST_TICK_TS else True
+        tot = TOTAL_TICKS
+        d_done = DAILY_SEED_DONE
         d_done_n = int(DAILY_SEED_PROGRESS.get("done", 0) or 0)
-        d_total  = int(DAILY_SEED_PROGRESS.get("total", 0) or 0)
-        d_err    = int(DAILY_SEED_ERRORS or 0)
+        d_total = int(DAILY_SEED_PROGRESS.get("total", 0) or 0)
+        d_err = int(DAILY_SEED_ERRORS or 0)
 
     with CACHE_LOCK:
         sm = dict(CACHE.get("sentiment") or {})
-        pn = CACHE.get("pcr")
+        # pn = CACHE.get("pcr")  # kept if you want to show in top bar
 
     sent_label = str(sm.get("label") or "NEUTRAL").upper()
     sent_score = float(sm.get("score") or 0.0)
-    adv        = int(sm.get("adv",  0) or 0)
-    dec        = int(sm.get("dec",  0) or 0)
-    unch       = int(sm.get("unch", 0) or 0)
+    adv = int(sm.get("adv", 0) or 0)
+    dec = int(sm.get("dec", 0) or 0)
+    unch = int(sm.get("unch", 0) or 0)
 
     if sent_label == "BULLISH":
         sent_style = {"color": "var(--good)", "borderColor": "rgba(46, 213, 115, 0.55)"}
@@ -2928,39 +2222,18 @@ def update_top_stats(_):
         title=f"Adv {adv} • Dec {dec} • Unch {unch}",
     )
 
-    if pn and pn.get("pcr") is not None:
-        pcr     = float(pn["pcr"])
-        pcr_lbl = pcr_label_from_value(pcr)
-
-        if pcr_lbl in ("BUY", "STRONG BUY"):
-            pcr_style = {"color": "var(--good)", "borderColor": "rgba(46, 213, 115, 0.55)"}
-        elif pcr_lbl in ("SELL", "STRONG SELL"):
-            pcr_style = {"color": "var(--bad)", "borderColor": "rgba(255, 71, 87, 0.55)"}
-        else:
-            pcr_style = {}
-
-        pcr_chip = html.Div(
-            f"PCR: {pcr:.2f} ({pcr_lbl})",
-            className="stat-chip",
-            style=pcr_style,
-            title=f"Expiry {pn.get('expiry')} • ATM {pn.get('atm')} • Time {pn.get('updated_at')}",
-        )
-    else:
-        pcr_chip = html.Div("PCR: LOADING", className="stat-chip")
-
     chips = [
-    dbc.Badge("Offline" if offline else "Live", color=("danger" if offline else "success"), className="stat-badge"),
-    html.A(
-        "Volm",
-        href=f"{BASE}volm",
-        target="_blank",
-        className="stat-chip",
-        style={"textDecoration": "none", "marginLeft": "8px", "cursor": "pointer"},
-    ),
-    _oi_inference_chip(),
-    sentiment_chip,
-    # pcr_chip,  # <-- hidden from top nav
-]
+        dbc.Badge("Offline" if offline else "Live", color=("danger" if offline else "success"), className="stat-badge"),
+        html.A(
+            "Volm",
+            href=f"{BASE}volm",
+            target="_blank",
+            className="stat-chip",
+            style={"textDecoration": "none", "marginLeft": "8px", "cursor": "pointer"},
+        ),
+        _oi_inference_chip(),
+        sentiment_chip,
+    ]
 
     if not d_done:
         chips.append(
@@ -2980,20 +2253,41 @@ def update_top_stats(_):
     return html.Div(chips, className="top-stats-wrap")
 
 
+@dash_app.callback(
+    Output("baseline-store", "data"),
+    Output("baseline-toggle", "children"),
+    Output("baseline-toggle", "title"),
+    Input("baseline-toggle", "n_clicks"),
+    State("baseline-store", "data"),
+    prevent_initial_call=True,
+)
+def toggle_baseline_mode(_n, mode):
+    mode = (mode or "AUTO").upper()
+    new_mode = "CENTER" if mode == "AUTO" else "AUTO"
+    icon_cls = "bi bi-sliders2-vertical" if new_mode == "AUTO" else "bi bi-align-center"
+    title = f"Baseline: {new_mode} (click to switch)"
+    return new_mode, html.I(className=icon_cls), title
 
+
+# =============================================================================
+# SECTOR BARS
+# =============================================================================
 @dash_app.callback(
     Output("sector-bars", "children"),
     Input("refresh_sectors", "n_intervals"),
     Input("sectors-sort", "value"),
     Input("sectors-sort-dd", "value"),
+    Input("baseline-store", "data"),
 )
-def render_sector_bars(_n, sort_by_radio, sort_by_dd):
+def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
     """
-    FIXED baseline (no auto shifting):
-      - zero line always centered (50%)
-      - symmetric scaling: |+x| == |-x| bar height
+    baseline_mode (DirR only):
+      - AUTO   : zero-line shifts based on dominance
+      - CENTER : fixed center baseline
     """
     try:
+        baseline_mode = (baseline_mode or "AUTO").upper().strip()
+
         trig = ctx.triggered_id
         if trig == "sectors-sort":
             sort_by = sort_by_radio
@@ -3004,22 +2298,17 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd):
 
         sort_by = (sort_by or "DirR").strip()
 
-        # Metric mapping
         if sort_by == "DirR":
             metric = "DirR"
-        elif sort_by == "RVOL5":
-            metric = "RVOL5NetMean"  
+        elif sort_by == "RVOL5Mean":
+            metric = "RVOL5NetMean"
         elif sort_by == "RVOLmMean":
             metric = "RVOLmNetMean"
         else:
             metric = "RVOLmNetSum"
 
-        # Load cached aggregates
         with CACHE_LOCK:
             agg = dict(CACHE.get("sector_agg") or {})
-
-        if not agg:
-            return html.Div("Loading sector bars…", className="hint")
 
         items = sorted(
             agg.items(),
@@ -3030,10 +2319,9 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd):
             return html.Div("Loading sector bars…", className="hint")
 
         vals = [float(((m or {}).get(metric, 0.0)) or 0.0) for _, m in items]
+        pos_vals = [v for v in vals if v > 0]
+        neg_abs = [abs(v) for v in vals if v < 0]
 
-        # -----------------------------
-        # Helpers
-        # -----------------------------
         def pct(sorted_list, p: float) -> float:
             if not sorted_list:
                 return 0.0
@@ -3049,91 +2337,118 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd):
             return float(max(raw * mul, min_cap))
 
         def soft01(x: float) -> float:
-            # soft saturation for nicer visuals; keeps sign symmetry
             return 1.0 - math.exp(-max(0.0, float(x)))
-
-        # -----------------------------
-        # Split + tuning
-        # -----------------------------
-        pos_vals = [v for v in vals if v > 0]
-        neg_abs  = [abs(v) for v in vals if v < 0]
 
         if metric == "DirR":
             CAP_Q, CAP_MUL, MIN_CAP = 0.92, 1.15, 0.03
-            GAMMA = 0.50
             BAR_MIN_PX = 0.0
             fmt_tick = lambda v: f"{float(v):+.1f}"
-            fmt_tip  = lambda v: f"{float(v):+.1f}"
+            fmt_tip = lambda v: f"{float(v):+.1f}"
         else:
             CAP_Q, CAP_MUL, MIN_CAP = 0.88, 1.20, 0.50
-            GAMMA = 0.65
             BAR_MIN_PX = 4.0
             fmt_tick = lambda v: f"{float(v):.2f}"
-            fmt_tip  = lambda v: f"{float(v):.2f}"
+            fmt_tip = lambda v: f"{float(v):.2f}"
 
-        # -----------------------------
-        # Plot sizing
-        # -----------------------------
-        PLOT_H     = int(SECTOR_PLOT_H_PX)
+        PLOT_H = int(SECTOR_PLOT_H_PX)
         LABEL_BAND = 28
-        TRACK_H    = max(160, PLOT_H - LABEL_BAND)
+        TRACK_H = max(160, PLOT_H - LABEL_BAND)
 
-        # -----------------------------
-        # Caps (robust) -> symmetric abs cap
-        # -----------------------------
         pos_cap = cap_from_abs(pos_vals, CAP_Q, MIN_CAP, CAP_MUL)
-        neg_cap = cap_from_abs(neg_abs,  CAP_Q, MIN_CAP, CAP_MUL)
-        abs_cap = float(max(pos_cap, neg_cap, 1e-9))
+        neg_cap = cap_from_abs(neg_abs, CAP_Q, MIN_CAP, CAP_MUL)
+        eps = 1e-9
 
-        # -----------------------------
-        # Fixed baseline (NO auto scaling)
-        # -----------------------------
-        zero_pct = 50.0
-        half_px  = max(0.0, (TRACK_H / 2.0) - 1.0)
+        # Scaling & baseline
+        if metric == "DirR" and baseline_mode == "CENTER":
+            abs_cap = float(max(pos_cap, neg_cap, 1e-9))
+            tick_max = abs_cap
+            tick_min = -abs_cap
+            axis_span_ticks = 2.0 * abs_cap
 
-        # -----------------------------
-        # Axis ticks (linear, symmetric)
-        # -----------------------------
-        ticks = [abs_cap, abs_cap / 2.0, 0.0, -abs_cap / 2.0, -abs_cap]
+            zero_pct = 50.0
+            half_px = max(0.0, (TRACK_H / 2.0) - 1.0)
+
+            def to_px(val: float) -> float:
+                v = float(val)
+                if v == 0.0 or half_px <= 0:
+                    return 0.0
+                x = abs(v) / abs_cap
+                y = soft01(x) ** 0.55
+                px = y * half_px
+                if BAR_MIN_PX > 0 and 0.0 < px < BAR_MIN_PX:
+                    px = BAR_MIN_PX
+                return float(max(0.0, min(px, half_px)))
+
+        elif metric == "DirR":
+            axis_span = float(pos_cap + neg_cap) + eps
+            zero_pct = (float(pos_cap) / axis_span) * 100.0
+            zero_pct = max(1.0, min(99.0, zero_pct))
+
+            pos_px = max(0.0, (TRACK_H * (zero_pct / 100.0)) - 1.0)
+            neg_px = max(0.0, (TRACK_H - (TRACK_H * (zero_pct / 100.0))) - 1.0)
+
+            px_per_unit = float(TRACK_H) / (float(pos_cap) + float(neg_cap) + eps)
+
+            tick_max = float(pos_cap)
+            tick_min = -float(neg_cap)
+            axis_span_ticks = float(tick_max - tick_min) or 1.0
+
+            def to_px(val: float) -> float:
+                v = float(val)
+                if v == 0.0:
+                    return 0.0
+                if v > 0:
+                    vv = min(v, float(pos_cap))
+                    px = min(vv * px_per_unit, pos_px)
+                else:
+                    vv = min(-v, float(neg_cap))
+                    px = min(vv * px_per_unit, neg_px)
+                if BAR_MIN_PX > 0 and 0.0 < px < BAR_MIN_PX:
+                    px = BAR_MIN_PX
+                return float(max(0.0, px))
+
+        else:
+            pos_cap = float(max(pos_cap, 1e-9))
+            neg_cap = float(max(neg_cap, 1e-9))
+
+            tick_max = pos_cap
+            tick_min = -neg_cap
+            axis_span_ticks = float(tick_max - tick_min) or 1.0
+
+            zero_pct = ((tick_max - 0.0) / axis_span_ticks) * 100.0
+            zero_pct = max(0.0, min(100.0, zero_pct))
+
+            pos_px = max(0.0, (TRACK_H * (zero_pct / 100.0)) - 1.0)
+            neg_px = max(0.0, (TRACK_H - (TRACK_H * (zero_pct / 100.0))) - 1.0)
+
+            def to_px(val: float) -> float:
+                v = float(val)
+                if v == 0.0:
+                    return 0.0
+                if v > 0:
+                    x = v / (tick_max + eps)
+                    px = (soft01(x) ** 0.65) * pos_px
+                    px = min(px, pos_px)
+                else:
+                    x = (-v) / ((-tick_min) + eps)
+                    px = (soft01(x) ** 0.65) * neg_px
+                    px = min(px, neg_px)
+                if BAR_MIN_PX > 0 and 0.0 < px < BAR_MIN_PX:
+                    px = BAR_MIN_PX
+                return float(max(0.0, px))
+
+        # Axis ticks
+        ticks = [tick_max, tick_max / 2.0, 0.0, tick_min / 2.0, tick_min]
         axis_ticks = []
-        axis_span = 2.0 * abs_cap
-
         for tv in ticks:
-            # map value -> % from top (linear)
-            top_pct = ((abs_cap - float(tv)) / axis_span) * 100.0
-            axis_ticks.append(
-                html.Div(
-                    fmt_tick(tv),
-                    className="sector-axis-tick",
-                    style={"top": f"{top_pct:.2f}%"},
-                )
-            )
+            top_pct = ((tick_max - float(tv)) / axis_span_ticks) * 100.0
+            axis_ticks.append(html.Div(fmt_tick(tv), className="sector-axis-tick", style={"top": f"{top_pct:.2f}%"}))
 
         axis = html.Div(axis_ticks, className="sector-hist-axis", style={"height": f"{TRACK_H}px"})
         children = [axis, html.Div(className="sector-hist-zero-line")]
 
-        # -----------------------------
-        # Value -> bar pixels (symmetric)
-        # -----------------------------
-        def to_px(val: float) -> float:
-            v = float(val)
-            if v == 0.0 or half_px <= 0:
-                return 0.0
-
-            x = abs(v) / abs_cap          # 0..1
-            y = soft01(x) ** float(GAMMA) # nice curve, symmetric
-            px = y * float(half_px)
-
-            if BAR_MIN_PX > 0 and 0.0 < px < BAR_MIN_PX:
-                px = BAR_MIN_PX
-
-            return float(max(0.0, min(px, half_px)))
-
-        # -----------------------------
-        # Render bars
-        # -----------------------------
         for sector, m in items:
-            val  = float(((m or {}).get(metric, 0.0)) or 0.0)
+            val = float(((m or {}).get(metric, 0.0)) or 0.0)
             disp = sector.replace("_", " ").upper()
             bar_px = to_px(val)
 
@@ -3145,19 +2460,13 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd):
                     children=html.Div(
                         [
                             html.Div(
-                                [
-                                    html.Div(disp, className="sector-hist-tip-name"),
-                                    html.Div(fmt_tip(val), className="sector-hist-tip-val"),
-                                ],
+                                [html.Div(disp, className="sector-hist-tip-name"),
+                                 html.Div(fmt_tip(val), className="sector-hist-tip-val")],
                                 className="sector-hist-tooltip",
                             ),
                             html.Div(
-                                [
-                                    html.Div(
-                                        className=("sector-hist-bar pos" if val >= 0 else "sector-hist-bar neg"),
-                                        style={"height": f"{bar_px:.2f}px", "maxHeight": f"{half_px:.2f}px"},
-                                    )
-                                ],
+                                [html.Div(className=("sector-hist-bar pos" if val >= 0 else "sector-hist-bar neg"),
+                                          style={"height": f"{bar_px:.2f}px"})],
                                 className="sector-hist-track",
                                 style={
                                     "height": f"{TRACK_H}px",
@@ -3187,12 +2496,11 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd):
                 )
             )
 
-        # Pass CSS vars used by your theme.css
         return html.Div(
             children,
             className="sector-hist-plot",
             style={
-                "--zero": "50%",
+                "--zero": f"{zero_pct:.2f}%",
                 "--axisW": "68px",
                 "--plotH": f"{TRACK_H}px",
                 "--labelH": f"{LABEL_BAND}px",
@@ -3207,12 +2515,11 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd):
             style={"color": "red", "padding": "20px", "fontSize": "14px"},
         )
 
+
 # =============================================================================
-# SECTOR MODAL
+# SECTOR MODAL ROWS
 # =============================================================================
 def sector_rows_sorted(sector: str, sort_by: str = "RFactor"):
-    RVOL5_WINDOW_SEC = 300  # rolling 5 minutes
-
     def _cumvol_at_or_before(series: List[Tuple[float, float, Optional[float]]], cutoff_epoch: float):
         base_t = None
         base_v = None
@@ -3223,23 +2530,20 @@ def sector_rows_sorted(sector: str, sort_by: str = "RFactor"):
                     base_v = float(v)
             else:
                 break
-
         if base_v is not None:
             return base_t, base_v
 
-        # fallback: earliest cumvol in the deque (shorter effective window)
         for t, _p, v in series:
             if v is not None:
                 return float(t), float(v)
-
         return None, None
 
     rows = []
-    now_ist   = datetime.now(IST)
+    now_ist = datetime.now(IST)
     now_epoch = time.time()
-
     tf_now = _time_factor_ist_for_rvol(now_ist)
-    snap   = _snapshot_state(include_hot=False)
+
+    snap = _snapshot_state(include_hot=False)
 
     for s in SECTOR_DEFINITIONS.get(sector, []):
         tok = symbol_to_token.get(s)
@@ -3251,10 +2555,9 @@ def sector_rows_sorted(sector: str, sort_by: str = "RFactor"):
             continue
 
         pct_open = float(rr["pct_open"])
-        ltp      = float(rr["ltp"])
+        ltp = float(rr["ltp"])
         vol_today = float(rr["vol_today"])
 
-        # paced day RVOLm (existing)
         tf_day = _time_factor_ist_for_rvol(now_ist)
         st = (snap.get("daily") or {}).get(tok) or {}
         avg_vol_20 = st.get("avg_vol_20")
@@ -3269,14 +2572,12 @@ def sector_rows_sorted(sector: str, sort_by: str = "RFactor"):
             except Exception:
                 rvolm = None
 
-        # ---- NEW: rolling RVOLm5 (RVOL5) ----
         rvol5 = None
         if market_is_open_ist(now_ist) and avg_vol_20 is not None:
             try:
                 av = float(avg_vol_20)
                 if av > 0:
                     cutoff_epoch = now_epoch - float(RVOL5_WINDOW_SEC)
-
                     with LOCK:
                         dq = HOT_HISTORY.get(tok)
                         series = list(dq) if dq else None
@@ -3289,26 +2590,20 @@ def sector_rows_sorted(sector: str, sort_by: str = "RFactor"):
                                 eff_sec = max(5.0, min(float(RVOL5_WINDOW_SEC), now_epoch - float(base_t)))
                                 then_ist = now_ist - timedelta(seconds=eff_sec)
                                 tf_then = _time_factor_ist_for_rvol(then_ist)
-
-                                frac = max(1e-4, float(tf_now) - float(tf_then))  # expected fraction in this window
+                                frac = max(1e-4, float(tf_now) - float(tf_then))
                                 exp5 = av * frac
                                 rvol5 = float(vol5) / (float(exp5) + 1e-9)
             except Exception:
                 rvol5 = None
 
         rows.append({
-            "Symbol" : s,
+            "Symbol": s,
             "Company": symbol_to_name.get(s, ""),
-            "DirR"   : float(rr["dirr"]),
-            "Price"  : float(ltp),
+            "DirR": float(rr["dirr"]),
+            "Price": float(ltp),
             "%Change": float(pct_open),
-
-            # NEW FIELD used by columnDefs:
-            "RVOL5"  : (float(rvol5) if rvol5 is not None else None),
-
-            # Keep RVOLm for desktop last column:
-            "RVOLm"  : (float(rvolm) if rvolm is not None else None),
-
+            "RVOL5": (float(rvol5) if rvol5 is not None else None),
+            "RVOLm": (float(rvolm) if rvolm is not None else None),
             "RFactor": float(rr["rfactor"]),
         })
 
@@ -3346,7 +2641,7 @@ def sector_rows_sorted(sector: str, sort_by: str = "RFactor"):
 def sync_sector_modal(pathname, _tick):
     sector = _extract_sector_from_path(pathname)
     if sector and sector in SECTOR_DEFINITIONS:
-        rows  = sector_rows_sorted(sector, sort_by="RFactor")
+        rows = sector_rows_sorted(sector, sort_by="RFactor")
         title = sector.replace("_", " ").title()
         return True, title, rows, rows
     return False, "Sector", [], []
@@ -3391,7 +2686,7 @@ def update_dials(_):
         sm = dict(CACHE.get("sentiment") or {})
         pn = CACHE.get("pcr")
 
-    score      = float(sm.get("score") or 0.0)
+    score = float(sm.get("score") or 0.0)
     sent_angle = max(-90.0, min(90.0, score * 90.0))
     sent_style = {"--rot": f"{sent_angle:.2f}deg"}
     sent_label = str(sm.get("label") or "NEUTRAL")
@@ -3405,13 +2700,13 @@ def update_dials(_):
     )
 
     if pn and pn.get("pcr") is not None:
-        pcr         = float(pn["pcr"])
-        label       = pcr_label_from_value(pcr)
+        pcr = float(pn["pcr"])
+        label = pcr_label_from_value(pcr)
         pcr_clamped = max(0.0, min(2.0, pcr))
-        pcr_angle   = (pcr_clamped - 1.0) * 90.0
-        pcr_style   = {"--rot": f"{pcr_angle:.2f}deg"}
-        pe_txt      = _fmt_oi_compact(pn.get("pe_oi"))
-        ce_txt      = _fmt_oi_compact(pn.get("ce_oi"))
+        pcr_angle = (pcr_clamped - 1.0) * 90.0
+        pcr_style = {"--rot": f"{pcr_angle:.2f}deg"}
+        pe_txt = _fmt_oi_compact(pn.get("pe_oi"))
+        ce_txt = _fmt_oi_compact(pn.get("ce_oi"))
 
         pcr_sub = html.Span(
             [
@@ -3422,7 +2717,7 @@ def update_dials(_):
         )
     else:
         pcr_style = {"--rot": "0deg"}
-        pcr_sub   = html.Span(
+        pcr_sub = html.Span(
             [
                 html.Span("LOADING", className="dial-state state-neutral"),
                 html.Span("PCR", className="dial-meta"),
@@ -3434,23 +2729,23 @@ def update_dials(_):
 
 
 @dash_app.callback(
-    Output("top15-gainers-grid",   "rowData"),
-    Output("top15-losers-grid",    "rowData"),
+    Output("top15-gainers-grid", "rowData"),
+    Output("top15-losers-grid", "rowData"),
     Output("top15-gainers-grid-m", "rowData"),
-    Output("top15-losers-grid-m",  "rowData"),
+    Output("top15-losers-grid-m", "rowData"),
     Input("refresh_sectors", "n_intervals"),
 )
 def update_rfactor_leaderboards(_):
     with CACHE_LOCK:
         g = list(CACHE.get("top15_gainers") or [])
-        l = list(CACHE.get("top15_losers")  or [])
+        l = list(CACHE.get("top15_losers") or [])
     return g, l, g, l
 
 
 @dash_app.callback(
-    Output("volm-buy-grid",  "rowData"),
+    Output("volm-buy-grid", "rowData"),
     Output("volm-sell-grid", "rowData"),
-    Output("rvol5-label",    "children"),
+    Output("rvol5-label", "children"),
     Input("refresh_volm", "n_intervals"),
 )
 def update_volm_grids(_):

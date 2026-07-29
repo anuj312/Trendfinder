@@ -72,6 +72,13 @@ COMPUTE_PCR_EVERY_SEC = float(os.getenv("COMPUTE_PCR_EVERY_SEC", "5.0"))
 COMPUTE_RVOL5_EVERY_SEC = float(os.getenv("COMPUTE_RVOL5_EVERY_SEC", "5.0"))
 COMPUTE_SLEEP_SEC = float(os.getenv("COMPUTE_SLEEP_SEC", "0.20"))
 
+RFACTOR_EMA: Dict[int, float] = {}
+RFACTOR_EMA_ALPHA = float(os.getenv("RFACTOR_EMA_ALPHA", "0.35"))  # 0.25 smoother, 0.45 faster
+TOP_STICKY_BONUS = float(os.getenv("TOP_STICKY_BONUS", "0.06"))    # 0.00 disables stickiness
+
+_LAST_TOP15_G: set[str] = set()
+_LAST_TOP15_L: set[str] = set()
+
 SECTOR_PLOT_H_PX = int(os.getenv("SECTOR_PLOT_H_PX", "360"))
 
 # Rolling RVOL5 (last 5 minutes)
@@ -1284,11 +1291,6 @@ def start_compute_loop_once():
     _compute_started = True
 
     def _cumvol_at_or_before(series: List[Tuple[float, float, Optional[float]]], cutoff_epoch: float):
-        """
-        series: list[(epoch, ltp, cumvol)]
-        Return (base_epoch, base_cumvol) at or before cutoff.
-        If not available, fallback to earliest cumvol in series.
-        """
         base_t = None
         base_v = None
         for t, _p, v in series:
@@ -1302,7 +1304,6 @@ def start_compute_loop_once():
         if base_v is not None:
             return base_t, base_v
 
-        # fallback: earliest available cumvol
         for t, _p, v in series:
             if v is not None:
                 return float(t), float(v)
@@ -1310,6 +1311,8 @@ def start_compute_loop_once():
         return None, None
 
     def _run():
+        global _LAST_TOP15_G, _LAST_TOP15_L
+
         last_core = 0.0
         last_hot = 0.0
         last_pcr = 0.0
@@ -1333,44 +1336,78 @@ def start_compute_loop_once():
                         tok = symbol_to_token.get(sym)
                         if not tok:
                             continue
+
                         rr = _compute_rfactor_row_snap(tok, snap)
                         if not rr:
                             continue
 
-                        rr_by_tok[tok] = rr
+                        pct_raw = float(rr["pct_open"])
+                        rf_raw  = float(rr["rfactor"])
+
+                        # ---- EMA smoothing (stabilizes rankings) ----
+                        prev = RFACTOR_EMA.get(tok)
+                        rf_ema = rf_raw if prev is None else (
+                            (RFACTOR_EMA_ALPHA * rf_raw) + ((1.0 - RFACTOR_EMA_ALPHA) * prev)
+                        )
+                        RFACTOR_EMA[tok] = float(rf_ema)
+
+                        # Use EMA for stability in sector aggregates + heatmap too
+                        rr_stable = dict(rr)
+                        rr_stable["rfactor"] = float(rf_ema)
+                        rr_stable["dirr"] = (1.0 if pct_raw >= 0 else -1.0) * float(rf_ema)
+                        rr_by_tok[tok] = rr_stable
+
+                        # store sorting keys (not shown in UI)
                         rows_basic.append({
                             "Symbol": sym,
-                            "%Change": round(float(rr["pct_open"]), 2),
-                            "RFactor": round(float(rr["rfactor"]), 2),
+                            "%Change": round(pct_raw, 2),         # display
+                            "RFactor": round(float(rf_ema), 2),   # display (smoothed)
+                            "_pct_raw": pct_raw,                  # sort/filter raw
+                            "_rf_sort": float(rf_ema),            # sort on this (NOT rounded)
                             "Vol": int(rr["vol_today"]),
                         })
-                        rfactor_vals.append(float(rr["rfactor"]))
+                        rfactor_vals.append(float(rf_ema))
 
-                    gainers = [r for r in rows_basic if float(r["%Change"]) > 0]
-                    losers = [r for r in rows_basic if float(r["%Change"]) < 0]
-                    gainers.sort(key=lambda r: float(r["RFactor"]), reverse=True)
-                    losers.sort(key=lambda r: float(r["RFactor"]), reverse=True)
+                    # ---- Top15 with stickiness (reduces churn) ----
+                    def sort_score(row: dict, prev_set: set[str]) -> float:
+                        base = float(row.get("_rf_sort") or 0.0)
+                        if TOP_STICKY_BONUS > 0 and row.get("Symbol") in prev_set:
+                            return base * (1.0 + TOP_STICKY_BONUS)
+                        return base
+
+                    gainers = [r for r in rows_basic if float(r.get("_pct_raw") or 0.0) > 0.0]
+                    losers  = [r for r in rows_basic if float(r.get("_pct_raw") or 0.0) < 0.0]
+
+                    gainers.sort(key=lambda r: sort_score(r, _LAST_TOP15_G), reverse=True)
+                    losers.sort(key=lambda r: sort_score(r, _LAST_TOP15_L), reverse=True)
 
                     top15_gainers = gainers[:15]
-                    top15_losers = losers[:15]
+                    top15_losers  = losers[:15]
 
+                    # update sticky sets
+                    _LAST_TOP15_G = set(r["Symbol"] for r in top15_gainers)
+                    _LAST_TOP15_L = set(r["Symbol"] for r in top15_losers)
+
+                    # ---- HVHR bucket (use raw smoothed values, not rounded) ----
                     thr = _quantile_threshold(rfactor_vals, float(HVHR_RFACTOR_Q)) if rfactor_vals else None
                     if thr is None:
                         hvhr_gainers, hvhr_losers = [], []
                     else:
-                        bucket = [r for r in rows_basic if float(r["RFactor"]) >= float(thr)]
-                        bucket_g = [r for r in bucket if float(r["%Change"]) > 0]
-                        bucket_l = [r for r in bucket if float(r["%Change"]) < 0]
-                        bucket_g.sort(key=lambda r: (int(r["Vol"]), float(r["RFactor"])), reverse=True)
-                        bucket_l.sort(key=lambda r: (int(r["Vol"]), float(r["RFactor"])), reverse=True)
-                        hvhr_gainers = bucket_g[: int(HVHR_N)]
-                        hvhr_losers = bucket_l[: int(HVHR_N)]
+                        bucket   = [r for r in rows_basic if float(r.get("_rf_sort") or 0.0) >= float(thr)]
+                        bucket_g = [r for r in bucket if float(r.get("_pct_raw") or 0.0) > 0.0]
+                        bucket_l = [r for r in bucket if float(r.get("_pct_raw") or 0.0) < 0.0]
 
+                        bucket_g.sort(key=lambda r: (int(r["Vol"]), float(r["_rf_sort"])), reverse=True)
+                        bucket_l.sort(key=lambda r: (int(r["Vol"]), float(r["_rf_sort"])), reverse=True)
+
+                        hvhr_gainers = bucket_g[: int(HVHR_N)]
+                        hvhr_losers  = bucket_l[: int(HVHR_N)]
+
+                    # ---- sector aggregates + sentiment ----
                     sector_agg = _compute_sector_aggregates_from_rr_with_daily(
                         rr_by_tok=rr_by_tok,
                         daily_map=(snap.get("daily") or {}),
                     )
-
                     sentiment = _compute_market_sentiment_proxy_snap(snap)
 
                     sector_order = sorted(
@@ -1379,6 +1416,7 @@ def start_compute_loop_once():
                         reverse=True,
                     )
 
+                    # ---- heatmap rows (use stable rr_by_tok) ----
                     heat_rows: List[dict] = []
                     for sec in sector_order:
                         sym_scored: List[Tuple[float, str]] = []
@@ -1565,7 +1603,7 @@ def start_compute_loop_once():
                             row = {
                                 "Symbol": sym,
                                 "%Change": round(float(pct_open), 2),
-                                "RVOL5": float(round(rvol5, 2)),  # numeric keeps correct sort
+                                "RVOL5": float(round(rvol5, 2)),
                                 "Vol5": int(vol5),
                             }
 
@@ -2057,7 +2095,7 @@ dash_app.layout = dbc.Container(
     children=[
         dcc.Location(id="url"),
         dcc.Store(id="page-store"),
-        dcc.Store(id="baseline-store", data="AUTO"),  # AUTO or CENTER
+        dcc.Store(id="baseline-store", data="CENTER"),  # AUTO or CENTER
         dcc.Interval(id="top_refresh", interval=1000, n_intervals=0),
 
         html.Div(

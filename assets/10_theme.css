@@ -1586,3 +1586,12 @@ html[data-theme="dark"] .ag-theme-alpine-dark{
 @media (max-width: 860px){
   .page-wrap h6{ font-size: 10px; padding: 8px 14px; }
 }
+
+/* Remove the black haze/shadow behind histogram bars (keep colored glow) */
+:root{
+  --hist-pos-shadow: 0 16px 38px rgba(0,217,126,0.18);
+  --hist-neg-shadow: 0 16px 38px rgba(255,61,87,0.18);
+}
+
+.sector-hist-bar.pos{ box-shadow: var(--hist-pos-shadow) !important; }
+.sector-hist-bar.neg{ box-shadow: var(--hist-neg-shadow) !important; }

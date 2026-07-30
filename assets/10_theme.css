@@ -1595,3 +1595,60 @@ html[data-theme="dark"] .ag-theme-alpine-dark{
 
 .sector-hist-bar.pos{ box-shadow: var(--hist-pos-shadow) !important; }
 .sector-hist-bar.neg{ box-shadow: var(--hist-neg-shadow) !important; }
+
+/* /volm sector headers: white in dark (default), black in light */
+:root{
+  --tt-volm-hdr: #ffffff;   /* DARK default */
+}
+
+html[data-theme="light"]{
+  --tt-volm-hdr: #111111;   /* LIGHT override */
+}
+
+#momo-g1-title, #momo-g2-title, #momo-g3-title,
+#momo-l1-title, #momo-l2-title, #momo-l3-title{
+  color: var(--tt-volm-hdr) !important;
+}
+
+/* =========================
+   AUTO-HIDE TOPBAR (hover to show)
+   ========================= */
+
+/* how many pixels remain visible at the very top as a hover handle */
+:root { --tt-topbar-handle: 10px; }
+
+/* make topbar fixed so it doesn't leave an empty gap when hidden */
+.topbar-wrap{
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+
+  /* hide almost all of it, keep only handle visible */
+  transform: translateY(calc(-100% + var(--tt-topbar-handle))) !important;
+
+  transition: transform .22s ease !important;
+  margin: 0 !important;
+  z-index: 5000 !important;
+}
+
+/* show on hover or when keyboard focuses inside */
+.topbar-wrap:hover,
+.topbar-wrap:focus-within{
+  transform: translateY(0) !important;
+}
+
+/* prevent content from sitting under the little visible handle */
+#app-body{
+  padding-top: var(--tt-topbar-handle);
+}
+
+/* Mobile: keep it visible (no hover) */
+@media (max-width: 860px){
+  .topbar-wrap{
+    position: sticky !important;
+    transform: none !important;
+    z-index: 1200 !important; /* back to normal */
+  }
+  #app-body{ padding-top: 0; }
+}

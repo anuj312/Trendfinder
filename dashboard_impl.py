@@ -73,8 +73,8 @@ COMPUTE_RVOL5_EVERY_SEC = float(os.getenv("COMPUTE_RVOL5_EVERY_SEC", "5.0"))
 COMPUTE_SLEEP_SEC = float(os.getenv("COMPUTE_SLEEP_SEC", "0.20"))
 
 RFACTOR_EMA: Dict[int, float] = {}
-RFACTOR_EMA_ALPHA = float(os.getenv("RFACTOR_EMA_ALPHA", "0.35"))  # 0.25 smoother, 0.45 faster
-TOP_STICKY_BONUS = float(os.getenv("TOP_STICKY_BONUS", "0.06"))    # 0.00 disables stickiness
+TOP_STICKY_BONUS = float(os.getenv("TOP_STICKY_BONUS", "0.0"))    # 0.00 disables stickiness
+RFACTOR_EMA_ALPHA = float(os.getenv("RFACTOR_EMA_ALPHA", "0.45"))
 
 _LAST_TOP15_G: set[str] = set()
 _LAST_TOP15_L: set[str] = set()
@@ -96,7 +96,7 @@ U_CURVE_READY = False
 U_CUM_FRAC: List[float] = []
 
 # Recency settings
-RECENCY_WEIGHT = float(os.getenv("RECENCY_WEIGHT", "0.50"))
+RECENCY_WEIGHT = float(os.getenv("RECENCY_WEIGHT", "1.0"))
 RECENCY_WINDOWS = [
     (300,  0.40),   # 5  min
     (900,  0.35),   # 15 min

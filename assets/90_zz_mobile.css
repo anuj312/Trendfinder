@@ -1,39 +1,106 @@
-/* 99_zz_mobile.css
-/* ==========================================================
-   TurboTrades – PREMIUM MOBILE ONLY STYLES (CLEAN)
-   Applies ONLY to screens ≤ 768px
-   Put this file in: assets/   (loads late because 99_zz_*)
-========================================================== */
+/* 90_zz_mobile.css
+   ==========================================================
+   TurboTrades — PREMIUM RESPONSIVE STYLES (CLEAN, ALL SCREENS)
+   - Works across: phones, tablets, laptops, desktops
+   - Keeps dual-theme working (NO forced dark body background)
+   - Breakpoints:
+       <=1024px : tablets / small laptops
+       <=768px  : mobile / small tablets
+       <=420px  : extra small phones
+   - Put in assets/ (loads after 10_theme.css)
+   ========================================================== */
 
-/* Desktop defaults (leave desktop untouched) */
+
+/* ==========================================================
+   0) DESKTOP DEFAULTS (keep desktop untouched by default)
+========================================================== */
 .desktop-only { display: block; }
 .mobile-only  { display: none; }
 
 
 /* ==========================================================
-   MOBILE + SMALL TABLETS
+   1) GLOBAL (ALL SCREENS) — fluid + theme-safe tokens
+========================================================== */
+:root {
+  /* Brand */
+  --brand-primary: #007aff;
+  --brand-primary-glow: rgba(0, 122, 255, 0.35);
+
+  /* Theme-safe surfaces (works in both dark/light) */
+  --bg-card: color-mix(in srgb, var(--text) 4%, transparent);
+  --bg-card-hover: color-mix(in srgb, var(--text) 8%, transparent);
+
+  --border-subtle: var(--border2);
+  --border-focus: color-mix(in srgb, var(--brand-primary) 55%, transparent);
+
+  --text-muted: var(--muted);
+  --text-bright: var(--text);
+
+  --glass-blur: blur(12px);
+  --transition-premium: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Fluid gutters across all screens */
+.container-fluid {
+  padding-left: clamp(12px, 2vw, 24px) !important;
+  padding-right: clamp(12px, 2vw, 24px) !important;
+}
+
+/* Page padding: smooth scaling (does not fight 10_theme.css; just helps when cramped) */
+.page-wrap {
+  padding-left: clamp(10px, 1.6vw, 20px) !important;
+  padding-right: clamp(10px, 1.6vw, 20px) !important;
+}
+
+/* Hint baseline (your theme.css may also define; this keeps it consistent everywhere) */
+.hint {
+  font-size: clamp(11px, 1.1vw, 12px);
+  color: var(--text-muted);
+  font-weight: 500;
+  letter-spacing: 0.1px;
+}
+
+/* Heatmap: responsive height on all screens (overrides inline) */
+#market-heatmap {
+  height: clamp(52vh, 68vh, 75vh) !important;
+}
+
+
+/* ==========================================================
+   2) TABLETS + SMALL LAPTOPS (<= 1024px)
+   - Better wrapping in topbar for iPad / small laptops
+========================================================== */
+@media screen and (max-width: 1024px) {
+
+  /* Bootstrap row tweaks (avoid column width constraints) */
+  .topbar-wrap .topbar-row {
+    width: 100% !important;
+    margin: 0 !important;
+
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    gap: 10px !important;
+  }
+
+  .topbar-wrap .topbar-row > .col,
+  .topbar-wrap .topbar-row > [class*="col-"] {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    max-width: none !important;
+  }
+
+  /* When space is tight, chips should start from left */
+  .top-stats-wrap {
+    justify-content: flex-start !important;
+  }
+}
+
+
+/* ==========================================================
+   3) MOBILE + SMALL TABLETS (<= 768px)
 ========================================================== */
 @media screen and (max-width: 768px) {
-
-  /* --------------------------------------------------------
-     Mobile variables (scoped to mobile)
-  -------------------------------------------------------- */
-  :root {
-    --brand-primary: #007aff;
-    --brand-primary-glow: rgba(0, 122, 255, 0.35);
-
-    --bg-card: rgba(255, 255, 255, 0.035);
-    --bg-card-hover: rgba(255, 255, 255, 0.07);
-
-    --border-subtle: rgba(255, 255, 255, 0.08);
-    --border-focus: rgba(0, 122, 255, 0.50);
-
-    --text-muted: rgba(255, 255, 255, 0.50);
-    --text-bright: #ffffff;
-
-    --glass-blur: blur(12px);
-    --transition-premium: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-  }
 
   /* --------------------------------------------------------
      Show/Hide helpers
@@ -43,10 +110,11 @@
 
   /* --------------------------------------------------------
      Base / layout
+     IMPORTANT: we do NOT override body background color.
+     The theme is controlled by 10_theme.css via var(--body-bg).
   -------------------------------------------------------- */
   body {
     overflow-x: hidden;
-    background-color: #0d0e12;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -58,40 +126,44 @@
   }
 
   .page-wrap {
-    padding-left: 8px;
-    padding-right: 8px;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
   }
 
   .page-title {
-    font-size: 19px;
-    font-weight: 800;
-    letter-spacing: -0.3px;
-    color: var(--text-bright);
-    background: linear-gradient(120deg, #ffffff 60%, rgba(255, 255, 255, 0.7));
+    font-size: 19px !important;
+    font-weight: 850 !important;
+    letter-spacing: -0.3px !important;
+
+    /* Theme-safe “premium” title: uses theme gradient that swaps in light mode */
+    background: var(--silver-glow);
     -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    color: transparent !important;
   }
 
   .hint {
-    font-size: 11px;
-    color: var(--text-muted);
-    font-weight: 400;
-    letter-spacing: 0.1px;
+    font-size: 11px !important;
+    color: var(--text-muted) !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.1px !important;
   }
 
   /* --------------------------------------------------------
      TOP BAR (fix wrapping + make chips scroll horizontally)
   -------------------------------------------------------- */
   .topbar-wrap {
-    background: rgba(13, 14, 18, 0.75);
+    /* Theme-safe mobile glass: don’t hardcode dark backgrounds */
+    background: color-mix(in srgb, var(--bg0) 86%, transparent) !important;
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
     border-bottom: 1px solid var(--border-subtle);
+
     position: sticky;
     top: 0;
     z-index: 1000;
 
-    padding: 10px 12px;
+    padding: 10px 12px !important;
   }
 
   /* Bootstrap row tweaks */
@@ -147,7 +219,7 @@
   }
 
   .tt-logo {
-    height: 22px;
+    height: 22px !important;
     filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25));
   }
 
@@ -169,15 +241,18 @@
     flex: 0 0 auto !important;
     white-space: nowrap !important;
 
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.2px;
-    padding: 5px 10px;
-    border-radius: 20px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-subtle);
-    color: rgba(255, 255, 255, 0.85);
+    font-size: 10.5px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.2px !important;
+    padding: 5px 10px !important;
+    border-radius: 20px !important;
+
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border-subtle) !important;
+    color: color-mix(in srgb, var(--text) 92%, transparent) !important;
+
     backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
     display: inline-flex;
     align-items: center;
     transition: var(--transition-premium);
@@ -185,17 +260,19 @@
 
   .tt-logout-btn {
     font-size: 11px !important;
-    font-weight: 600 !important;
+    font-weight: 700 !important;
     padding: 5px 12px !important;
-    border-radius: 20px;
-    background: rgba(255, 59, 48, 0.12) !important;
-    border: 1px solid rgba(255, 59, 48, 0.25) !important;
-    color: #ff453a !important;
+    border-radius: 20px !important;
+
+    background: color-mix(in srgb, var(--bad) 14%, transparent) !important;
+    border: 1px solid color-mix(in srgb, var(--bad) 28%, transparent) !important;
+    color: var(--bad) !important;
+
     transition: var(--transition-premium);
   }
   .tt-logout-btn:active {
     transform: scale(0.95);
-    background: rgba(255, 59, 48, 0.20) !important;
+    background: color-mix(in srgb, var(--bad) 20%, transparent) !important;
   }
 
   .theme-toggle {
@@ -211,12 +288,12 @@
   .sectors-sort-dd { width: 100%; }
 
   .sectors-sort-dd.form-select {
-    background: rgba(255,255,255,0.035) !important;
-    border: 1px solid rgba(255,255,255,0.08) !important;
-    color: rgba(255,255,255,0.9) !important;
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border-subtle) !important;
+    color: color-mix(in srgb, var(--text) 92%, transparent) !important;
     border-radius: 14px !important;
     padding: 10px 12px !important;
-    font-weight: 700 !important;
+    font-weight: 800 !important;
     font-size: 12px !important;
   }
 
@@ -235,9 +312,9 @@
   .sector-hist-col { min-width: 64px !important; transition: var(--transition-premium); }
 
   .sector-hist-name {
-    font-size: 9.5px;
-    font-weight: 600;
-    color: var(--text-muted);
+    font-size: 9.5px !important;
+    font-weight: 700 !important;
+    color: var(--text-muted) !important;
     text-transform: uppercase;
     letter-spacing: 0.3px;
   }
@@ -245,7 +322,7 @@
   .sector-hist-tip-name,
   .sector-hist-tip-val {
     font-size: 11px;
-    font-weight: 500;
+    font-weight: 600;
   }
 
   /* Save space on small screens */
@@ -255,40 +332,43 @@
   }
 
   /* --------------------------------------------------------
-     AG Grid (mobile premium look)
+     AG Grid (mobile premium look) — theme-safe
   -------------------------------------------------------- */
   .ag-theme-alpine-dark {
-    font-size: 12px;
+    font-size: 12px !important;
     border-radius: 12px;
     overflow: hidden;
+
     border: 1px solid var(--border-subtle) !important;
-    background-color: rgba(18, 19, 24, 0.6) !important;
+    background: var(--card-bg) !important;
+
     backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
   }
 
   .ag-theme-alpine-dark .ag-header {
     height: 38px !important;
-    background-color: rgba(255, 255, 255, 0.02) !important;
+    background: color-mix(in srgb, var(--text) 2%, transparent) !important;
     border-bottom: 1px solid var(--border-subtle) !important;
   }
 
   .ag-theme-alpine-dark .ag-header-cell {
-    font-weight: 700 !important;
+    font-weight: 800 !important;
     color: var(--text-muted) !important;
     text-transform: uppercase;
-    font-size: 10px;
-    letter-spacing: 0.5px;
+    font-size: 10px !important;
+    letter-spacing: 0.5px !important;
   }
 
   .ag-theme-alpine-dark .ag-row {
     height: 38px !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
+    border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, transparent) !important;
     background-color: transparent !important;
   }
 
   .ag-theme-alpine-dark .ag-row-hover,
   .ag-theme-alpine-dark .ag-row-selected {
-    background-color: rgba(255, 255, 255, 0.04) !important;
+    background-color: color-mix(in srgb, var(--text) 4%, transparent) !important;
   }
 
   .ag-theme-alpine-dark .ag-cell {
@@ -297,7 +377,7 @@
     text-overflow: ellipsis;
     display: flex;
     align-items: center;
-    color: rgba(255, 255, 255, 0.9);
+    color: color-mix(in srgb, var(--text) 92%, transparent);
   }
 
   /* --------------------------------------------------------
@@ -376,17 +456,18 @@
   }
 
   /* --------------------------------------------------------
-     Mobile Tabs (Top15): premium segmented look + dot colors
+     Mobile Tabs (Top15): premium segmented look + dot colors (theme-safe)
   -------------------------------------------------------- */
   .top15-tabs{
-    background: rgba(255,255,255,0.025) !important;
-    border: 1px solid rgba(255,255,255,0.08) !important;
+    background: color-mix(in srgb, var(--text) 2.5%, transparent) !important;
+    border: 1px solid var(--border-subtle) !important;
     border-radius: 16px !important;
     padding: 6px !important;
     box-shadow:
-      0 14px 34px rgba(0,0,0,0.55),
-      inset 0 1px 0 rgba(255,255,255,0.06);
+      0 14px 34px rgba(0,0,0,0.35),
+      inset 0 1px 0 color-mix(in srgb, var(--text) 6%, transparent);
     backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
   }
 
   .top15-tabs .nav-link{
@@ -394,12 +475,14 @@
     border-radius: 13px !important;
     padding: 10px 12px !important;
     font-size: 12px !important;
-    font-weight: 800 !important;
+    font-weight: 900 !important;
     letter-spacing: 0.5px !important;
     text-transform: uppercase;
-    color: rgba(255,255,255,0.65) !important;
-    background: rgba(255,255,255,0.02) !important;
-    border: 1px solid rgba(255,255,255,0.06) !important;
+
+    color: color-mix(in srgb, var(--muted) 95%, transparent) !important;
+    background: color-mix(in srgb, var(--text) 2%, transparent) !important;
+    border: 1px solid color-mix(in srgb, var(--text) 6%, transparent) !important;
+
     transition: 0.18s ease;
     flex: 1;
     text-align: center;
@@ -410,31 +493,31 @@
     width: 8px;
     height: 8px;
     border-radius: 99px;
-    background: rgba(255,255,255,0.25);
+    background: color-mix(in srgb, var(--text) 18%, transparent);
     display: inline-block;
     margin-right: 8px;
-    box-shadow: 0 0 0 1px rgba(255,255,255,0.10);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 10%, transparent);
     transform: translateY(-1px);
   }
 
   .top15-tabs .nav-item:nth-child(1) .nav-link::before{
-    background: rgba(46, 213, 115, 0.90) !important; /* gainers */
+    background: color-mix(in srgb, var(--good) 85%, transparent) !important; /* gainers */
   }
   .top15-tabs .nav-item:nth-child(2) .nav-link::before{
-    background: rgba(255, 71, 87, 0.90) !important;  /* losers */
+    background: color-mix(in srgb, var(--bad)  85%, transparent) !important;  /* losers */
   }
 
   .top15-tabs .nav-link.active{
-    color: rgba(255,255,255,0.96) !important;
+    color: color-mix(in srgb, var(--text) 96%, transparent) !important;
     background: linear-gradient(180deg,
-      rgba(255,255,255,0.08),
-      rgba(255,255,255,0.03)
+      color-mix(in srgb, var(--text) 7%, transparent),
+      color-mix(in srgb, var(--text) 3%, transparent)
     ) !important;
-    border-color: rgba(0,122,255,0.35) !important;
+    border-color: color-mix(in srgb, var(--brand-primary) 35%, var(--border-subtle)) !important;
     box-shadow:
-      0 12px 28px rgba(0,0,0,0.55),
-      0 0 20px rgba(0,122,255,0.20),
-      inset 0 1px 0 rgba(255,255,255,0.10);
+      0 12px 28px rgba(0,0,0,0.35),
+      0 0 20px rgba(0,122,255,0.16),
+      inset 0 1px 0 color-mix(in srgb, var(--text) 10%, transparent);
     transform: translateY(-1px);
   }
 
@@ -477,7 +560,7 @@
   #sector-modal-grid-m .ag-cell[col-id="Symbol"],
   #sector-modal-grid-m .ag-cell[col-id="Symbol"] *{
     font-size: 12px !important;
-    font-weight: 700 !important;
+    font-weight: 800 !important;
   }
 
   #sector-modal-grid-m .ag-cell[col-id="DirR"],
@@ -519,18 +602,18 @@
      Typography polish
   -------------------------------------------------------- */
   .page-wrap h6 {
-    font-weight: 700 !important;
-    font-size: 14px;
-    letter-spacing: 0.3px;
-    color: var(--text-bright);
-    margin-bottom: 12px;
+    font-weight: 800 !important;
+    font-size: 14px !important;
+    letter-spacing: 0.3px !important;
+    color: var(--text-bright) !important;
+    margin-bottom: 12px !important;
   }
 
   h6.mt-1 {
-    font-weight: 800 !important;
+    font-weight: 900 !important;
     font-size: 15px !important;
-    letter-spacing: 0.4px;
-    color: var(--text-bright);
+    letter-spacing: 0.4px !important;
+    color: var(--text-bright) !important;
     text-transform: capitalize;
   }
 
@@ -541,12 +624,12 @@
   #volm-sell-grid {
     height: 55vh !important;
     border-radius: 14px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.30);
   }
 
   /* --------------------------------------------------------
      Open Interest iframe
- -------------------------------------------------------- */
+  -------------------------------------------------------- */
   iframe {
     height: calc(100vh - 120px) !important;
     border-radius: 14px;
@@ -554,14 +637,15 @@
   }
 
   /* --------------------------------------------------------
-     Modal system: bottom-sheet style
- -------------------------------------------------------- */
+     Modal system: bottom-sheet style (theme-safe)
+  -------------------------------------------------------- */
   .modal { z-index: 2000 !important; }
 
   .modal-backdrop {
     z-index: 1990 !important;
     backdrop-filter: blur(8px) !important;
-    background-color: rgba(0, 0, 0, 0.6) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
+    background-color: color-mix(in srgb, #000 55%, transparent) !important;
   }
 
   .modal-dialog {
@@ -575,28 +659,39 @@
   }
 
   .modal-content {
-    background: #14161d !important;
-    border: none !important;
+    background: var(--modal-bg) !important;
+    border: 1px solid color-mix(in srgb, var(--text) 8%, transparent) !important;
+    border-bottom: none !important;
     border-radius: 20px 20px 0 0 !important;
-    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.5) !important;
-    border-top: 1px solid rgba(255, 255, 255, 0.12) !important;
+    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.35) !important;
     padding-bottom: env(safe-area-inset-bottom);
   }
 
   .modal-content::before {
-    content: '';
+    content: "";
     display: block;
     width: 36px;
     height: 4px;
-    background: rgba(255, 255, 255, 0.2);
+    background: color-mix(in srgb, var(--text) 18%, transparent);
     border-radius: 2px;
     margin: 8px auto 0 auto;
   }
 }
 
 
+/* ==========================================================
+   4) EXTRA-SMALL PHONES (<= 420px)
+========================================================== */
+@media screen and (max-width: 420px){
+  .tt-logo { height: 20px !important; }
+  .stat-chip, .stat-badge { font-size: 10px !important; padding: 5px 9px !important; }
+  #market-heatmap { height: 52vh !important; }
+}
+
+
 /* ======================================================
-   Desktop titles (keep outside mobile media)
+   5) Desktop titles (keep outside mobile media)
+   - Theme-safe versions (no hardcoded white-only colors)
 ====================================================== */
 .tt-top15-title{
   font-size: 14px;
@@ -606,28 +701,30 @@
   margin: 6px 0 10px 0;
   padding: 10px 14px;
   border-radius: 14px;
-  background: rgba(255,255,255,0.035);
-  border: 1px solid rgba(255,255,255,0.08);
+
+  background: color-mix(in srgb, var(--text) 3.5%, transparent);
+  border: 1px solid var(--border2);
   box-shadow:
-    0 10px 24px rgba(0,0,0,0.45),
-    inset 0 1px 0 rgba(255,255,255,0.08);
+    0 10px 24px rgba(0,0,0,0.28),
+    inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent);
   backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .tt-top15-gainers{
-  color: rgba(46, 213, 115, 0.95);
-  border-color: rgba(46, 213, 115, 0.22);
+  color: color-mix(in srgb, var(--good) 95%, transparent);
+  border-color: color-mix(in srgb, var(--good) 25%, transparent);
   box-shadow:
-    0 10px 24px rgba(0,0,0,0.45),
-    0 0 18px rgba(46, 213, 115, 0.12),
-    inset 0 1px 0 rgba(255,255,255,0.08);
+    0 10px 24px rgba(0,0,0,0.28),
+    0 0 18px color-mix(in srgb, var(--good) 14%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent);
 }
 
 .tt-top15-losers{
-  color: rgba(255, 71, 87, 0.95);
-  border-color: rgba(255, 71, 87, 0.22);
+  color: color-mix(in srgb, var(--bad) 95%, transparent);
+  border-color: color-mix(in srgb, var(--bad) 25%, transparent);
   box-shadow:
-    0 10px 24px rgba(0,0,0,0.45),
-    0 0 18px rgba(255, 71, 87, 0.12),
-    inset 0 1px 0 rgba(255,255,255,0.08);
+    0 10px 24px rgba(0,0,0,0.28),
+    0 0 18px color-mix(in srgb, var(--bad) 14%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent);
 }

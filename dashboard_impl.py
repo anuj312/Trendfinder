@@ -153,10 +153,10 @@ SECTOR_DEFINITIONS = {
     "PHARMA": [
         "CIPLA", "ALKEM", "BIOCON", "DRREDDY",
         "MANKIND", "TORNTPHARM", "ZYDUSLIFE",
-        "DIVISLAB", "LUPIN", "PPLPHARMA",
+        "DIVISLAB", "LUPIN", 
         "LAURUSLABS", "FORTIS",
         "AUROPHARMA", "GLENMARK",
-        "SUNPHARMA", "SYNGENE",
+        "SUNPHARMA", 
         "MAXHEALTH", "APOLLOHOSP"
     ],
     "FMCG": [

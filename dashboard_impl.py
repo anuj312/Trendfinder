@@ -58,6 +58,7 @@ HOT_MIN_RANGE_PCT = float(os.getenv("HOT_MIN_RANGE_PCT", "0.40"))
 
 HVHR_N = int(os.getenv("HVHR_N", "20"))
 HVHR_RFACTOR_Q = float(os.getenv("HVHR_RFACTOR_Q", "0.85"))
+DIRR_CLIP = float(os.getenv("DIRR_CLIP", "8.0"))  # max per-stock momentum contribution
 
 # PCR (NFO)
 PCR_STRIKES_AROUND_ATM = int(os.getenv("PCR_STRIKES_AROUND_ATM", "12"))
@@ -1054,22 +1055,35 @@ def _compute_market_sentiment_proxy_snap(snap: Dict[str, Any]) -> Dict[str, Any]
 
 
 # =============================================================================
-# SECTOR AGGREGATES (includes rolling RVOL5)
+# SECTOR AGGREGATES (includes rolling %CHANGE)
 # =============================================================================
 def _compute_sector_aggregates_from_rr_with_daily(
     rr_by_tok: Dict[int, Dict[str, float]],
     daily_map: Dict[int, Dict[str, Optional[float]]],
 ) -> Dict[str, Dict[str, float]]:
-    tf_day = _time_factor_ist_for_rvol(datetime.now(IST))
-    out: Dict[str, Dict[str, float]] = {}
+    """
+    Sector aggregates computed from per-token rr rows + daily stats:
+
+      - DirR: turnover-weighted momentum (sqrt(turnover) weighted mean of stock DirR)
+      - %ChangeMean: turnover-weighted mean of stock %Change (pct_open)
+      - RVOLm*: participation aggregates based on pct_open sign (buy/sell splits)
+      - RVOL5*: rolling 5-minute RVOL aggregates (buy/sell splits)
+
+    Returns:
+      dict[sector] -> metrics dict
+    """
+    DIRR_CLIP_LOCAL = float(os.getenv("DIRR_CLIP", "8.0"))  # cap per-stock DirR contribution
 
     now_ist = datetime.now(IST)
     now_epoch = time.time()
-    want_rvol5 = market_is_open_ist(now_ist)
-    cutoff_epoch = now_epoch - float(RVOL5_WINDOW_SEC)
+
+    tf_day = _time_factor_ist_for_rvol(now_ist)
     tf_now = _time_factor_ist_for_rvol(now_ist)
 
-    def _cumvol_at_or_before(series, cutoff: float):
+    want_rvol5 = market_is_open_ist(now_ist)
+    cutoff_epoch = now_epoch - float(RVOL5_WINDOW_SEC)
+
+    def _cumvol_at_or_before(series: List[Tuple[float, float, Optional[float]]], cutoff: float):
         base_t = None
         base_v = None
         for t, _p, v in series:
@@ -1079,13 +1093,18 @@ def _compute_sector_aggregates_from_rr_with_daily(
                     base_v = float(v)
             else:
                 break
+
         if base_v is not None:
             return base_t, base_v
+
+        # fallback: earliest known cumvol
         for t, _p, v in series:
             if v is not None:
                 return float(t), float(v)
+
         return None, None
 
+    # Snapshot HOT_HISTORY once to avoid locking per cell while computing RVOL5
     hot_snap: Dict[int, List[Tuple[float, float, Optional[float]]]] = {}
     if want_rvol5:
         with LOCK:
@@ -1094,11 +1113,22 @@ def _compute_sector_aggregates_from_rr_with_daily(
                 if dq:
                     hot_snap[tok] = list(dq)
 
+    out: Dict[str, Dict[str, float]] = {}
+
     for sector, syms in SECTOR_DEFINITIONS.items():
-        dirr_vals: List[float] = []
+        # ---- DirR (money-flow / turnover weighted) ----
+        dirr_num = 0.0
+        dirr_den = 0.0
+
+        # ---- %Change mean (turnover weighted) ----
+        chg_num = 0.0
+        chg_den = 0.0
+
+        # ---- RVOLm aggregates ----
         buy_sum = sell_sum = 0.0
         buy_n = sell_n = 0
 
+        # ---- RVOL5 aggregates ----
         buy5_sum = sell5_sum = 0.0
         buy5_n = sell5_n = 0
 
@@ -1111,13 +1141,36 @@ def _compute_sector_aggregates_from_rr_with_daily(
             if not rr:
                 continue
 
-            dirr_vals.append(float(rr.get("dirr") or 0.0))
+            # ---------- shared fields ----------
+            ltp_ = float(rr.get("ltp") or 0.0)
+            vol_ = float(rr.get("vol_today") or 0.0)
+            pct_open = rr.get("pct_open")  # may be None
 
+            turnover = max(0.0, ltp_ * vol_)
+            w = math.sqrt(turnover + 1e-9)  # soft weight so one stock doesn't dominate
+
+            # ---------- DirR weighted ----------
+            mom = float(rr.get("dirr") or 0.0)
+            if mom > DIRR_CLIP_LOCAL:
+                mom = DIRR_CLIP_LOCAL
+            elif mom < -DIRR_CLIP_LOCAL:
+                mom = -DIRR_CLIP_LOCAL
+
+            dirr_num += mom * w
+            dirr_den += w
+
+            # ---------- %Change weighted ----------
+            if pct_open is not None:
+                try:
+                    chg_num += float(pct_open) * w
+                    chg_den += w
+                except Exception:
+                    pass
+
+            # ---------- RVOLm / RVOL5 buy-sell splits ----------
             st = daily_map.get(tok) or {}
             avg_vol_20 = st.get("avg_vol_20")
-            vol_today = rr.get("vol_today")
-            pct_open = rr.get("pct_open")
-            if avg_vol_20 is None or vol_today is None or pct_open is None:
+            if avg_vol_20 is None or pct_open is None:
                 continue
 
             try:
@@ -1126,7 +1179,8 @@ def _compute_sector_aggregates_from_rr_with_daily(
                     continue
 
                 expected = av * float(tf_day)
-                rvolm = float(vol_today) / (expected + 1e-9)
+                rvolm = float(vol_) / (expected + 1e-9)
+
                 if float(pct_open) >= 0:
                     buy_sum += rvolm
                     buy_n += 1
@@ -1139,11 +1193,15 @@ def _compute_sector_aggregates_from_rr_with_daily(
                     if series and len(series) >= 2:
                         base_t, base_v = _cumvol_at_or_before(series, cutoff_epoch)
                         if base_t is not None and base_v is not None:
-                            vol5 = float(vol_today) - float(base_v)
+                            vol5 = float(vol_) - float(base_v)
                             if vol5 >= 0:
-                                eff_sec = max(5.0, min(float(RVOL5_WINDOW_SEC), now_epoch - float(base_t)))
+                                eff_sec = max(
+                                    5.0,
+                                    min(float(RVOL5_WINDOW_SEC), now_epoch - float(base_t)),
+                                )
                                 then_ist = now_ist - timedelta(seconds=eff_sec)
                                 tf_then = _time_factor_ist_for_rvol(then_ist)
+
                                 frac = max(1e-4, float(tf_now) - float(tf_then))
                                 exp5 = av * frac
                                 rvol5 = float(vol5) / (float(exp5) + 1e-9)
@@ -1154,12 +1212,14 @@ def _compute_sector_aggregates_from_rr_with_daily(
                                 else:
                                     sell5_sum += rvol5
                                     sell5_n += 1
+
             except Exception:
                 continue
 
-        n_total = buy_n + sell_n
-        dirr_mean = (sum(dirr_vals) / len(dirr_vals)) if dirr_vals else 0.0
+        dirr_mean = (dirr_num / (dirr_den + 1e-9)) if dirr_den > 0 else 0.0
+        chg_mean = (chg_num / (chg_den + 1e-9)) if chg_den > 0 else 0.0
 
+        n_total = buy_n + sell_n
         net_sum = float(buy_sum - sell_sum)
         gross_sum = float(buy_sum + sell_sum)
         net_mean = float(net_sum / n_total) if n_total > 0 else 0.0
@@ -1173,6 +1233,7 @@ def _compute_sector_aggregates_from_rr_with_daily(
 
         out[sector] = {
             "DirR": float(dirr_mean),
+            "%ChangeMean": float(chg_mean),
 
             "RVOLmBuySum": float(buy_sum),
             "RVOLmSellSum": float(sell_sum),
@@ -1192,7 +1253,6 @@ def _compute_sector_aggregates_from_rr_with_daily(
         }
 
     return out
-
 
 def _quantile_threshold(values: List[float], q: float) -> Optional[float]:
     if not values:
@@ -1842,7 +1902,7 @@ def sectors_page():
                                         options=[
                                             {"label": "Sort: RVOLm", "value": "RVOLm"},
                                             {"label": "Sort: RVOLm Mean", "value": "RVOLmMean"},
-                                            {"label": "Sort: RVOLm5 Mean", "value": "RVOL5Mean"},
+                                            {"label": "Sort: %Change", "value": "%Change"},
                                             {"label": "Sort: Momentum", "value": "DirR"},
                                         ],
                                         value="DirR",
@@ -2260,8 +2320,8 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
 
         if sort_by == "DirR":
             metric = "DirR"
-        elif sort_by == "RVOL5Mean":
-            metric = "RVOL5NetMean"
+        elif sort_by == "%Change":
+            metric = "%ChangeMean"
         elif sort_by == "RVOLmMean":
             metric = "RVOLmNetMean"
         else:
@@ -2300,15 +2360,22 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
             return 1.0 - math.exp(-max(0.0, float(x)))
 
         if metric == "DirR":
-            CAP_Q, CAP_MUL, MIN_CAP = 0.92, 1.15, 0.03
-            BAR_MIN_PX = 0.0
-            fmt_tick = lambda v: f"{float(v):+.1f}"
-            fmt_tip = lambda v: f"{float(v):+.1f}"
+          CAP_Q, CAP_MUL, MIN_CAP = 0.92, 1.15, 0.03
+          BAR_MIN_PX = 0.0
+          fmt_tick = lambda v: f"{float(v):+.1f}"
+          fmt_tip  = lambda v: f"{float(v):+.1f}"
+
+        elif metric == "%ChangeMean":
+          CAP_Q, CAP_MUL, MIN_CAP = 0.92, 1.15, 0.20
+          BAR_MIN_PX = 0.0
+          fmt_tick = lambda v: f"{float(v):+.1f}%"
+          fmt_tip  = lambda v: f"{float(v):+.1f}%"
+
         else:
-            CAP_Q, CAP_MUL, MIN_CAP = 0.88, 1.20, 0.50
-            BAR_MIN_PX = 4.0
-            fmt_tick = lambda v: f"{float(v):.2f}"
-            fmt_tip = lambda v: f"{float(v):.2f}"
+          CAP_Q, CAP_MUL, MIN_CAP = 0.88, 1.20, 0.50
+          BAR_MIN_PX = 4.0
+          fmt_tick = lambda v: f"{float(v):.2f}"
+          fmt_tip  = lambda v: f"{float(v):.2f}"
 
         PLOT_H = int(SECTOR_PLOT_H_PX)
         LABEL_BAND = 28

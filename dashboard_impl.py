@@ -51,6 +51,8 @@ LOOKBACK_SESSIONS = 20
 HOT_WINDOW_SEC = 5 * 60
 HOT_SAMPLE_SEC = 5
 HOT_HISTORY_MAX_SEC = HOT_WINDOW_SEC + 10 * 60
+RFACTOR_LOG_SCALE = float(os.getenv("RFACTOR_LOG_SCALE", "1.95"))
+SECTOR_DIRR_DISPLAY_SCALE = float(os.getenv("SECTOR_DIRR_DISPLAY_SCALE", "1.95"))
 
 # Hot Now filters
 HOT_MIN_RET_PCT = float(os.getenv("HOT_MIN_RET_PCT", "0.25"))
@@ -948,11 +950,15 @@ def _compute_rfactor_row_snap(token: int, snap: Dict[str, Any]) -> Optional[Dict
     if prev_close is None or day_open is None or day_high is None or day_low is None:
         return None
 
-    prev_close = float(prev_close)
-    day_open = float(day_open)
-    day_high = float(day_high)
-    day_low = float(day_low)
-    ltp = float(ltp)
+    try:
+        prev_close = float(prev_close)
+        day_open = float(day_open)
+        day_high = float(day_high)
+        day_low = float(day_low)
+        ltp = float(ltp)
+        vol_today = float(vol_today)
+    except Exception:
+        return None
 
     if prev_close <= 0 or day_open <= 0 or ltp <= 0:
         return None
@@ -964,30 +970,46 @@ def _compute_rfactor_row_snap(token: int, snap: Dict[str, Any]) -> Optional[Dict
     avg_vol_20 = st.get("avg_vol_20")
     avg_range_20 = st.get("avg_range_20")
     avg_abs_oc_ret_20 = st.get("avg_abs_oc_ret_20")
-    if not avg_vol_20 or not avg_range_20 or not avg_abs_oc_ret_20:
+
+    # Require daily baselines
+    if avg_vol_20 is None or avg_range_20 is None or avg_abs_oc_ret_20 is None:
+        return None
+
+    try:
+        avg_vol_20 = float(avg_vol_20)
+        avg_range_20 = float(avg_range_20)
+        avg_abs_oc_ret_20 = float(avg_abs_oc_ret_20)
+    except Exception:
+        return None
+
+    if avg_vol_20 <= 0 or avg_range_20 <= 0 or avg_abs_oc_ret_20 <= 0:
         return None
 
     eps = 1e-9
 
+    # ---- relative volume vs expected by time-of-day ----
     tf = _time_factor_ist_for_rvol(datetime.now(IST))
-    expected_vol = float(avg_vol_20) * tf
-    rvolm = float(vol_today) / (expected_vol + eps)
+    expected_vol = avg_vol_20 * tf
+    rvolm = vol_today / (expected_vol + eps)
 
+    # ---- relative range ----
     range_today = max(0.0, day_high - day_low)
-    range_factor = range_today / (float(avg_range_20) + eps)
+    range_factor = range_today / (avg_range_20 + eps)
 
-    move_factor = abs(float(pct_open)) / (float(avg_abs_oc_ret_20) + eps)
+    # ---- relative move size ----
+    move_factor = abs(pct_open) / (avg_abs_oc_ret_20 + eps)
 
     rfactor_val = rvolm * range_factor * move_factor
 
-    # "freshness" in day's range
+    # ---- freshness in day's range (near high if up, near low if down) ----
     range_span = max(day_high - day_low, eps)
     position_in_range = (ltp - day_low) / range_span
     position_in_range = max(0.0, min(1.0, position_in_range))
+
     freshness = (position_in_range ** 3) if pct_open >= 0 else ((1.0 - position_in_range) ** 3)
     rfactor_val *= freshness
 
-    # recency penalty/blend
+    # ---- recency multiplier (only during market hours) ----
     recency_mult = 1.0
     if market_is_open_ist():
         recency_mult = _compute_recency_multiplier_multi(
@@ -995,24 +1017,32 @@ def _compute_rfactor_row_snap(token: int, snap: Dict[str, Any]) -> Optional[Dict
             pct_open=pct_open,
             current_ltp=ltp,
             current_cumvol=vol_today,
-            avg_vol_20=float(avg_vol_20),
+            avg_vol_20=avg_vol_20,
         )
 
     rfactor_final = rfactor_val * ((1.0 - RECENCY_WEIGHT) + (RECENCY_WEIGHT * recency_mult))
-    dirr = (1.0 if pct_open >= 0 else -1.0) * rfactor_final
+
+    # ---- Option A: compress to smaller values without capping (monotonic) ----
+    rfactor_comp = RFACTOR_LOG_SCALE * math.log1p(max(0.0, float(rfactor_final)))
+
+    dirr = (1.0 if pct_open >= 0 else -1.0) * rfactor_comp
 
     return {
         "gap_pct": float(gap_pct),
         "pct_open": float(pct_open),
-        "rfactor": float(rfactor_final),
-        "rfactor_raw": float(rfactor_val),
+
+        # Use compressed everywhere downstream
+        "rfactor": float(rfactor_comp),
+
+        # Keep raw for debugging/inspection if you want
+        "rfactor_raw": float(rfactor_final),
+
         "recency_mult": float(recency_mult),
         "dirr": float(dirr),
         "ltp": float(ltp),
         "day_open": float(day_open),
         "vol_today": float(vol_today),
     }
-
 
 # =============================================================================
 # MARKET SENTIMENT (proxy)
@@ -2301,9 +2331,9 @@ def toggle_baseline_mode(_n, mode):
 )
 def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
     """
-    baseline_mode (DirR only):
-      - AUTO   : zero-line shifts based on dominance
-      - CENTER : fixed center baseline
+    Requested behavior:
+      - Only in Momentum mode (metric == 'DirR'): tooltip shows the scaled DirR number (no 'DirR' text).
+      - In all other sorts: tooltip shows ONLY the selected metric value (no DirR shown).
     """
     try:
         baseline_mode = (baseline_mode or "AUTO").upper().strip()
@@ -2318,14 +2348,25 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
 
         sort_by = (sort_by or "DirR").strip()
 
+        # ----- map UI choice -> metric key in sector_agg -----
         if sort_by == "DirR":
             metric = "DirR"
         elif sort_by == "%Change":
             metric = "%ChangeMean"
         elif sort_by == "RVOLmMean":
             metric = "RVOLmNetMean"
+        elif sort_by == "RVOL5Mean":
+            metric = "RVOL5NetMean"
         else:
-            metric = "RVOLmNetSum"
+            metric = "RVOLmNetSum"  # "RVOLm"
+
+        metric_pretty = {
+            "DirR": "Momentum",
+            "%ChangeMean": "%Change",
+            "RVOLmNetMean": "RVOLm Mean",
+            "RVOLmNetSum": "RVOLm Net",
+            "RVOL5NetMean": "RVOLm5 Mean",
+        }.get(metric, metric)
 
         with CACHE_LOCK:
             agg = dict(CACHE.get("sector_agg") or {})
@@ -2338,7 +2379,11 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         if not items:
             return html.Div("Loading sector bars…", className="hint")
 
-        vals = [float(((m or {}).get(metric, 0.0)) or 0.0) for _, m in items]
+        # Only scale in Momentum mode
+        plot_scale = float(SECTOR_DIRR_DISPLAY_SCALE) if metric == "DirR" else 1.0
+
+        # values for auto-capping/scaling the chart
+        vals = [float(((m or {}).get(metric, 0.0)) or 0.0) * plot_scale for _, m in items]
         pos_vals = [v for v in vals if v > 0]
         neg_abs = [abs(v) for v in vals if v < 0]
 
@@ -2359,23 +2404,22 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         def soft01(x: float) -> float:
             return 1.0 - math.exp(-max(0.0, float(x)))
 
+        # formatters + caps by metric
         if metric == "DirR":
-          CAP_Q, CAP_MUL, MIN_CAP = 0.92, 1.15, 0.03
-          BAR_MIN_PX = 0.0
-          fmt_tick = lambda v: f"{float(v):+.1f}"
-          fmt_tip  = lambda v: f"{float(v):+.1f}"
-
+            CAP_Q, CAP_MUL, MIN_CAP = 0.92, 1.15, 0.03
+            BAR_MIN_PX = 0.0
+            fmt_tick = lambda v: f"{float(v):+.1f}"
+            fmt_tip = lambda v: f"{float(v):+.2f}"
         elif metric == "%ChangeMean":
-          CAP_Q, CAP_MUL, MIN_CAP = 0.92, 1.15, 0.20
-          BAR_MIN_PX = 0.0
-          fmt_tick = lambda v: f"{float(v):+.1f}%"
-          fmt_tip  = lambda v: f"{float(v):+.1f}%"
-
+            CAP_Q, CAP_MUL, MIN_CAP = 0.92, 1.15, 0.20
+            BAR_MIN_PX = 0.0
+            fmt_tick = lambda v: f"{float(v):+.1f}%"
+            fmt_tip = lambda v: f"{float(v):+.2f}%"
         else:
-          CAP_Q, CAP_MUL, MIN_CAP = 0.88, 1.20, 0.50
-          BAR_MIN_PX = 4.0
-          fmt_tick = lambda v: f"{float(v):.2f}"
-          fmt_tip  = lambda v: f"{float(v):.2f}"
+            CAP_Q, CAP_MUL, MIN_CAP = 0.88, 1.20, 0.50
+            BAR_MIN_PX = 4.0
+            fmt_tick = lambda v: f"{float(v):.2f}"
+            fmt_tip = lambda v: f"{float(v):.2f}"
 
         PLOT_H = int(SECTOR_PLOT_H_PX)
         LABEL_BAND = 28
@@ -2385,7 +2429,7 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         neg_cap = cap_from_abs(neg_abs, CAP_Q, MIN_CAP, CAP_MUL)
         eps = 1e-9
 
-        # Scaling & baseline
+        # ----- Scaling & baseline -> converts metric value to pixel height -----
         if metric == "DirR" and baseline_mode == "CENTER":
             abs_cap = float(max(pos_cap, neg_cap, 1e-9))
             tick_max = abs_cap
@@ -2464,7 +2508,7 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
                     px = BAR_MIN_PX
                 return float(max(0.0, px))
 
-        # Axis ticks
+        # ----- Axis ticks -----
         ticks = [tick_max, tick_max / 2.0, 0.0, tick_min / 2.0, tick_min]
         axis_ticks = []
         for tv in ticks:
@@ -2474,10 +2518,20 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         axis = html.Div(axis_ticks, className="sector-hist-axis", style={"height": f"{TRACK_H}px"})
         children = [axis, html.Div(className="sector-hist-zero-line")]
 
+        # ----- Columns -----
         for sector, m in items:
-            val = float(((m or {}).get(metric, 0.0)) or 0.0)
+            m = m or {}
+
+            metric_raw = float(m.get(metric) or 0.0)
+            metric_plot = metric_raw * plot_scale  # only scales in Momentum mode
+
             disp = sector.replace("_", " ").upper()
-            bar_px = to_px(val)
+            bar_px = to_px(metric_plot)
+
+            # Tooltip:
+            # - Momentum mode: show scaled DirR number ONLY (no text)
+            # - Other modes  : show selected metric only
+            tip_val = fmt_tip(metric_plot) if metric == "DirR" else fmt_tip(metric_raw)
 
             children.append(
                 dcc.Link(
@@ -2487,13 +2541,20 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
                     children=html.Div(
                         [
                             html.Div(
-                                [html.Div(disp, className="sector-hist-tip-name"),
-                                 html.Div(fmt_tip(val), className="sector-hist-tip-val")],
+                                [
+                                    html.Div(disp, className="sector-hist-tip-name"),
+                                    html.Div(tip_val, className="sector-hist-tip-val"),
+                                ],
                                 className="sector-hist-tooltip",
+                                title=f"{metric_pretty} {tip_val}",
                             ),
                             html.Div(
-                                [html.Div(className=("sector-hist-bar pos" if val >= 0 else "sector-hist-bar neg"),
-                                          style={"height": f"{bar_px:.2f}px"})],
+                                [
+                                    html.Div(
+                                        className=("sector-hist-bar pos" if metric_plot >= 0 else "sector-hist-bar neg"),
+                                        style={"height": f"{bar_px:.2f}px"},
+                                    )
+                                ],
                                 className="sector-hist-track",
                                 style={
                                     "height": f"{TRACK_H}px",
@@ -2518,7 +2579,6 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
                         ],
                         className="sector-hist-col",
                         style={"display": "flex", "flexDirection": "column", "alignItems": "center"},
-                        title=f"{metric} {val:+.4f}",
                     ),
                 )
             )
@@ -2541,7 +2601,6 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
             className="hint",
             style={"color": "red", "padding": "20px", "fontSize": "14px"},
         )
-
 
 # =============================================================================
 # SECTOR MODAL ROWS
@@ -2796,7 +2855,7 @@ def update_volm_grids(_):
     def _title(sec: str, color_var: str):
         if not sec or sec == "—":
             return "—"
-        dirr = float((agg.get(sec) or {}).get("DirR") or 0.0)
+        dirr = float((agg.get(sec) or {}).get("DirR") or 0.0) * float(SECTOR_DIRR_DISPLAY_SCALE)
 
         return html.Span(
             [

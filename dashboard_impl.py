@@ -216,7 +216,7 @@ SECTOR_DEFINITIONS = {
         "PAGEIND", "UPL", "ADANIPORTS"
     ],
     "DEFENCE": [
-        "ABB","BEL", "BHEL",
+        "ABB","BEL","BDL", "BHEL",
         "CGPOWER", "CUMMINSIND",
         "HAL", "LT", "MAZDOCK",
         "SIEMENS", "SOLARINDS"

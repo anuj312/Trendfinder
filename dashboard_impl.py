@@ -127,12 +127,12 @@ SECTOR_DEFINITIONS = {
     "REALTY": [
         "PHOENIXLTD", "GODREJPROP", "LODHA",
         "OBEROIRLTY", "DLF", "PRESTIGE",
-        "NBCC", "RVNL", "HUDCO"
+        "NBCC", "RVNL",
     ],
     "ENERGY": [
         "RELIANCE", "ONGC", "IOC", "BPCL", "OIL",
         "NTPC", "POWERGRID", "POWERINDIA",
-        "TATAPOWER", "TORNTPOWER", "JSWENERGY",
+        "TATAPOWER","JSWENERGY",
         "ADANIGREEN", "ADANIENSOL",
         "NHPC", "IREDA", "SUZLON", "INOXWIND",
         "WAAREEENER", "PREMIERENE",

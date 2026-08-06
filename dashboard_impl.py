@@ -150,8 +150,7 @@ SECTOR_DEFINITIONS = {
         "INFY", "TCS", "HCLTECH", "WIPRO",
         "TECHM", "LTM", "MPHASIS",
         "KPITTECH", "COFORGE", "PERSISTENT",
-        "TATAELXSI", "OFSS", "CAMS",
-        "TATATECH", "NAUKRI", "KAYNES"
+        "TATAELXSI", "OFSS", "CAMS", "NAUKRI", "KAYNES"
     ],
     "PHARMA": [
         "CIPLA", "ALKEM", "BIOCON", "DRREDDY",
@@ -198,7 +197,7 @@ SECTOR_DEFINITIONS = {
     "BANK": [
         "HDFCBANK", "ICICIBANK", "AXISBANK", "KOTAKBANK",
         "IDFCFIRSTB", "FEDERALBNK", "INDUSINDBK",
-        "AUBANK", "BANDHANBNK", "RBLBANK",
+        "AUBANK", "BANDHANBNK", "RBLBANK"
     ],
     "PSUBANK": [
         "SBIN", "PNB", "BANKBARODA", "CANBK",
@@ -217,7 +216,7 @@ SECTOR_DEFINITIONS = {
         "PAGEIND", "UPL", "ADANIPORTS"
     ],
     "DEFENCE": [
-        "ABB", "BDL", "BEL", "BHEL",
+        "ABB","BEL", "BHEL",
         "CGPOWER", "CUMMINSIND",
         "HAL", "LT", "MAZDOCK",
         "SIEMENS", "SOLARINDS"
@@ -1982,7 +1981,7 @@ def sectors_page():
                         dbc.Col(
                             [
                                 html.H6("Top 15 Gainers", className="tt-top15-title tt-top15-gainers"),
-                                build_grid("top15-gainers-grid", "350px", top15_cols_desktop, grid_options_desktop),
+                                build_grid("top15-gainers-grid", "min(350px, 42vh)", top15_cols_desktop, grid_options_desktop),
                             ],
                             md=6,
                         ),

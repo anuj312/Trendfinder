@@ -1652,3 +1652,13 @@ html[data-theme="light"]{
   }
   #app-body{ padding-top: 0; }
 }
+
+.sector-hist-tip-subval{
+  font-size: 3px;
+  opacity: 0.85;
+  margin-top: 2px;
+}
+
+@media (min-width: 861px){
+  body{ zoom: 0.99; }
+}

@@ -1658,7 +1658,3 @@ html[data-theme="light"]{
   opacity: 0.85;
   margin-top: 2px;
 }
-
-@media (min-width: 861px){
-  body{ zoom: 0.94; }
-}

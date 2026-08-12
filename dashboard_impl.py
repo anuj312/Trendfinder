@@ -203,7 +203,7 @@ SECTOR_DEFINITIONS = {
         "SBIN", "PNB", "BANKBARODA", "CANBK",
         "UNIONBANK", "BANKINDIA", "INDIANB",
     ],
-    "TELECOM": [
+    "DURABLES": [
         "BHARTIARTL", "INDUSTOWER",
         "HAVELLS", "KEI", "POLYCAB",
         "CROMPTON", "VOLTAS",
@@ -943,40 +943,43 @@ def _compute_rfactor_row_snap(token: int, snap: Dict[str, Any]) -> Optional[Dict
 
     ltp, vol_today, ohlc = state_
     prev_close = ohlc.get("close")
-    day_open = ohlc.get("open")
-    day_high = ohlc.get("high")
-    day_low = ohlc.get("low")
+    day_open   = ohlc.get("open")
+    day_high   = ohlc.get("high")
+    day_low    = ohlc.get("low")
+
     if prev_close is None or day_open is None or day_high is None or day_low is None:
         return None
 
     try:
         prev_close = float(prev_close)
-        day_open = float(day_open)
-        day_high = float(day_high)
-        day_low = float(day_low)
-        ltp = float(ltp)
-        vol_today = float(vol_today)
+        day_open   = float(day_open)
+        day_high   = float(day_high)
+        day_low    = float(day_low)
+        ltp        = float(ltp)
+        vol_today  = float(vol_today)
     except Exception:
         return None
 
     if prev_close <= 0 or day_open <= 0 or ltp <= 0:
         return None
 
-    gap_pct = ((day_open - prev_close) / prev_close) * 100.0
-    pct_open = ((ltp - day_open) / day_open) * 100.0
+    eps = 1e-9
+
+    gap_pct      = ((day_open - prev_close) / prev_close) * 100.0
+    pct_open     = ((ltp - day_open)        / day_open)   * 100.0
+    range_pct_day = ((day_high - day_low)   / day_open)   * 100.0   # NEW: used for inactivity check
 
     st = (snap.get("daily") or {}).get(token) or {}
-    avg_vol_20 = st.get("avg_vol_20")
-    avg_range_20 = st.get("avg_range_20")
+    avg_vol_20       = st.get("avg_vol_20")
+    avg_range_20     = st.get("avg_range_20")
     avg_abs_oc_ret_20 = st.get("avg_abs_oc_ret_20")
 
-    # Require daily baselines
     if avg_vol_20 is None or avg_range_20 is None or avg_abs_oc_ret_20 is None:
         return None
 
     try:
-        avg_vol_20 = float(avg_vol_20)
-        avg_range_20 = float(avg_range_20)
+        avg_vol_20        = float(avg_vol_20)
+        avg_range_20      = float(avg_range_20)
         avg_abs_oc_ret_20 = float(avg_abs_oc_ret_20)
     except Exception:
         return None
@@ -984,15 +987,13 @@ def _compute_rfactor_row_snap(token: int, snap: Dict[str, Any]) -> Optional[Dict
     if avg_vol_20 <= 0 or avg_range_20 <= 0 or avg_abs_oc_ret_20 <= 0:
         return None
 
-    eps = 1e-9
-
     # ---- relative volume vs expected by time-of-day ----
-    tf = _time_factor_ist_for_rvol(datetime.now(IST))
+    tf           = _time_factor_ist_for_rvol(datetime.now(IST))
     expected_vol = avg_vol_20 * tf
-    rvolm = vol_today / (expected_vol + eps)
+    rvolm        = vol_today / (expected_vol + eps)
 
     # ---- relative range ----
-    range_today = max(0.0, day_high - day_low)
+    range_today  = max(0.0, day_high - day_low)
     range_factor = range_today / (avg_range_20 + eps)
 
     # ---- relative move size ----
@@ -1001,12 +1002,85 @@ def _compute_rfactor_row_snap(token: int, snap: Dict[str, Any]) -> Optional[Dict
     rfactor_val = rvolm * range_factor * move_factor
 
     # ---- freshness in day's range (near high if up, near low if down) ----
-    range_span = max(day_high - day_low, eps)
+    range_span       = max(day_high - day_low, eps)
     position_in_range = (ltp - day_low) / range_span
     position_in_range = max(0.0, min(1.0, position_in_range))
 
-    freshness = (position_in_range ** 3) if pct_open >= 0 else ((1.0 - position_in_range) ** 3)
+    freshness    = (position_in_range ** 3) if pct_open >= 0 else ((1.0 - position_in_range) ** 3)
     rfactor_val *= freshness
+
+    # ==========================================================================
+    # SIDEWAYS / CONSOLIDATION DAMPENER
+    #
+    # Two distinct checks so we never penalise a stock that moved 5% and rested:
+    #
+    #  1. INACTIVITY  – total day range (High-Low) is tiny all day
+    #                   → stock never moved → heavy penalty
+    #
+    #  2. STAGNATION  – stock DID produce a meaningful range but price has been
+    #                   flat in a very tight box over the last N minutes
+    #                   → mild penalty so fresh breakouts rank above it
+    # ==========================================================================
+
+    # ---- Tunable knobs (override via env vars) ----
+    INACTIVE_RANGE_THR   = float(os.getenv("INACTIVE_RANGE_THR",   "0.60"))   # day-range% below = inactive
+    INACTIVE_MULT        = float(os.getenv("INACTIVE_MULT",         "0.12"))   # penalty multiplier for inactive
+    STAGNATION_BOX_PCT   = float(os.getenv("STAGNATION_BOX_PCT",   "0.15"))   # 15-min box tighter than this → stagnating
+    STAGNATION_WINDOW_SEC = float(os.getenv("STAGNATION_WINDOW_SEC","900"))    # look-back window (seconds)
+    STAGNATION_MULT      = float(os.getenv("STAGNATION_MULT",       "0.65"))   # penalty multiplier for stagnation
+
+    # ---- 1. INACTIVITY: Has the stock produced any meaningful range today? ----
+    if range_pct_day < INACTIVE_RANGE_THR:
+        # Never really moved all day → dead stock, suppress heavily
+        inactivity_mult = float(INACTIVE_MULT)
+    else:
+        inactivity_mult = 1.0
+
+    # ---- 2. STAGNATION: Is the stock flat RIGHT NOW vs earlier today? --------
+    #
+    # Key insight: a stock that moved +5% and is consolidating has
+    #   range_pct_day = 5% → passes inactivity check above (inactivity_mult=1.0)
+    # We still want a mild dampening if it has been completely flat for 15 min,
+    # so that an actively breaking-out stock ranks above it.
+    #
+    # We do NOT penalise further when range_pct_day < INACTIVE_RANGE_THR
+    # (inactivity already handles that case with a harder floor).
+    # --------------------------------------------------------------------------
+    stagnation_mult = 1.0
+    if market_is_open_ist() and inactivity_mult == 1.0:
+        try:
+            with LOCK:
+                dq = HOT_HISTORY.get(token)
+                series = list(dq) if dq else None
+
+            if series and len(series) > 4:
+                now_epoch  = float(series[-1][0])
+                cutoff_rec = now_epoch - float(STAGNATION_WINDOW_SEC)
+
+                prices_rec = [
+                    float(p)
+                    for (t, p, _v) in series
+                    if float(t) >= cutoff_rec and p is not None
+                ]
+
+                if len(prices_rec) >= 3:
+                    hi_rec   = max(prices_rec)
+                    lo_rec   = min(prices_rec)
+                    box_pct  = ((hi_rec - lo_rec) / (day_open + eps)) * 100.0
+
+                    if box_pct < float(STAGNATION_BOX_PCT):
+                        # Price has barely moved in the last 15 minutes
+                        # → mild dampening (not zero — it still had a big day)
+                        stagnation_mult = float(STAGNATION_MULT)
+        except Exception:
+            stagnation_mult = 1.0   # safe fallback — never crash RFactor
+
+    # ---- Combined dampening ----
+    sideways_combined = inactivity_mult * stagnation_mult
+    rfactor_val      *= sideways_combined
+    # ==========================================================================
+    # END SIDEWAYS DAMPENER
+    # ==========================================================================
 
     # ---- recency multiplier (only during market hours) ----
     recency_mult = 1.0
@@ -1021,26 +1095,22 @@ def _compute_rfactor_row_snap(token: int, snap: Dict[str, Any]) -> Optional[Dict
 
     rfactor_final = rfactor_val * ((1.0 - RECENCY_WEIGHT) + (RECENCY_WEIGHT * recency_mult))
 
-    # ---- Option A: compress to smaller values without capping (monotonic) ----
+    # ---- log-compress (monotonic, no hard cap) ----
     rfactor_comp = RFACTOR_LOG_SCALE * math.log1p(max(0.0, float(rfactor_final)))
-
-    dirr = (1.0 if pct_open >= 0 else -1.0) * rfactor_comp
+    dirr         = (1.0 if pct_open >= 0 else -1.0) * rfactor_comp
 
     return {
-        "gap_pct": float(gap_pct),
-        "pct_open": float(pct_open),
-
-        # Use compressed everywhere downstream
-        "rfactor": float(rfactor_comp),
-
-        # Keep raw for debugging/inspection if you want
-        "rfactor_raw": float(rfactor_final),
-
-        "recency_mult": float(recency_mult),
-        "dirr": float(dirr),
-        "ltp": float(ltp),
-        "day_open": float(day_open),
-        "vol_today": float(vol_today),
+        "gap_pct":        float(gap_pct),
+        "pct_open":       float(pct_open),
+        "rfactor":        float(rfactor_comp),
+        "rfactor_raw":    float(rfactor_final),
+        "recency_mult":   float(recency_mult),
+        "inactivity_mult": float(inactivity_mult),   # debug
+        "stagnation_mult": float(stagnation_mult),   # debug
+        "dirr":           float(dirr),
+        "ltp":            float(ltp),
+        "day_open":       float(day_open),
+        "vol_today":      float(vol_today),
     }
 
 # =============================================================================

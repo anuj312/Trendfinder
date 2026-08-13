@@ -1,4 +1,4 @@
-# dashboard_clean.py
+# dashboard_clean.py  (improved RFactor edition)
 import os
 import time
 import threading
@@ -51,7 +51,7 @@ LOOKBACK_SESSIONS = 20
 HOT_WINDOW_SEC = 5 * 60
 HOT_SAMPLE_SEC = 5
 HOT_HISTORY_MAX_SEC = HOT_WINDOW_SEC + 10 * 60
-RFACTOR_LOG_SCALE = float(os.getenv("RFACTOR_LOG_SCALE", "1.95"))
+RFACTOR_LOG_SCALE = float(os.getenv("RFACTOR_LOG_SCALE", "2.9"))
 SECTOR_DIRR_DISPLAY_SCALE = float(os.getenv("SECTOR_DIRR_DISPLAY_SCALE", "1.95"))
 
 # Hot Now filters
@@ -105,6 +105,13 @@ RECENCY_WINDOWS = [
     (900,  0.35),   # 15 min
     (1800, 0.25),   # 30 min
 ]
+
+# ---- NEW: RFactor weights (geometric mean) ----
+RFACTOR_W_VOL   = float(os.getenv("RFACTOR_W_VOL",   "0.5"))
+RFACTOR_W_RANGE = float(os.getenv("RFACTOR_W_RANGE", "0.3"))
+RFACTOR_W_MOVE  = float(os.getenv("RFACTOR_W_MOVE",  "0.2"))
+# ---- NEW: gap boost factor (0 disables) ----
+RFACTOR_GAP_BOOST = float(os.getenv("RFACTOR_GAP_BOOST", "0.15"))
 
 
 # =============================================================================
@@ -934,9 +941,17 @@ def _compute_recency_multiplier_multi(
 
 
 # =============================================================================
-# RFACTOR (recency-aware)
+# RFACTOR (recency-aware) — IMPROVED VERSION
 # =============================================================================
-def _compute_rfactor_row_snap(token: int, snap: Dict[str, Any]) -> Optional[Dict[str, float]]:
+def _compute_rfactor_row_snap(token: int, snap: Dict[str, Any], market_pct: float = 0.0) -> Optional[Dict[str, float]]:
+    """
+    Compute RFactor for one token.
+
+    Improvements:
+      - Uses weighted geometric mean of relative volume, range, and move.
+      - Move factor is relative to market average move (market‑relative strength).
+      - Gap factor is multiplied in.
+    """
     state_ = _get_live_or_eod_state_from_snap(token, snap)
     if not state_:
         return None
@@ -967,7 +982,7 @@ def _compute_rfactor_row_snap(token: int, snap: Dict[str, Any]) -> Optional[Dict
 
     gap_pct      = ((day_open - prev_close) / prev_close) * 100.0
     pct_open     = ((ltp - day_open)        / day_open)   * 100.0
-    range_pct_day = ((day_high - day_low)   / day_open)   * 100.0   # NEW: used for inactivity check
+    range_pct_day = ((day_high - day_low)   / day_open)   * 100.0
 
     st = (snap.get("daily") or {}).get(token) or {}
     avg_vol_20       = st.get("avg_vol_20")
@@ -996,10 +1011,20 @@ def _compute_rfactor_row_snap(token: int, snap: Dict[str, Any]) -> Optional[Dict
     range_today  = max(0.0, day_high - day_low)
     range_factor = range_today / (avg_range_20 + eps)
 
-    # ---- relative move size ----
-    move_factor = abs(pct_open) / (avg_abs_oc_ret_20 + eps)
+    # ---- relative move size (now market-relative) ----
+    # market_pct is the average pct_open across all stocks
+    relative_pct = pct_open - market_pct
+    move_factor = abs(relative_pct) / (avg_abs_oc_ret_20 + eps)
 
-    rfactor_val = rvolm * range_factor * move_factor
+    # ---- NEW: weighted geometric mean of the three core factors ----
+    w_vol   = RFACTOR_W_VOL
+    w_range = RFACTOR_W_RANGE
+    w_move  = RFACTOR_W_MOVE
+    # avoid zero inputs, ensure minimum
+    rvolm_safe   = max(rvolm, 0.001)
+    range_safe   = max(range_factor, 0.001)
+    move_safe    = max(move_factor, 0.001)
+    rfactor_val = (rvolm_safe ** w_vol) * (range_safe ** w_range) * (move_safe ** w_move)
 
     # ---- freshness in day's range (near high if up, near low if down) ----
     range_span       = max(day_high - day_low, eps)
@@ -1009,43 +1034,26 @@ def _compute_rfactor_row_snap(token: int, snap: Dict[str, Any]) -> Optional[Dict
     freshness    = (position_in_range ** 3) if pct_open >= 0 else ((1.0 - position_in_range) ** 3)
     rfactor_val *= freshness
 
+    # ---- gap boost (new) ----
+    if RFACTOR_GAP_BOOST > 0:
+        gap_factor = 1.0 + RFACTOR_GAP_BOOST * min(abs(gap_pct) / 2.0, 2.0)
+        rfactor_val *= gap_factor
+
     # ==========================================================================
     # SIDEWAYS / CONSOLIDATION DAMPENER
-    #
-    # Two distinct checks so we never penalise a stock that moved 5% and rested:
-    #
-    #  1. INACTIVITY  – total day range (High-Low) is tiny all day
-    #                   → stock never moved → heavy penalty
-    #
-    #  2. STAGNATION  – stock DID produce a meaningful range but price has been
-    #                   flat in a very tight box over the last N minutes
-    #                   → mild penalty so fresh breakouts rank above it
+    # (unchanged from original)
     # ==========================================================================
+    INACTIVE_RANGE_THR   = float(os.getenv("INACTIVE_RANGE_THR",   "0.60"))
+    INACTIVE_MULT        = float(os.getenv("INACTIVE_MULT",         "0.12"))
+    STAGNATION_BOX_PCT   = float(os.getenv("STAGNATION_BOX_PCT",   "0.15"))
+    STAGNATION_WINDOW_SEC = float(os.getenv("STAGNATION_WINDOW_SEC","900"))
+    STAGNATION_MULT      = float(os.getenv("STAGNATION_MULT",       "0.65"))
 
-    # ---- Tunable knobs (override via env vars) ----
-    INACTIVE_RANGE_THR   = float(os.getenv("INACTIVE_RANGE_THR",   "0.60"))   # day-range% below = inactive
-    INACTIVE_MULT        = float(os.getenv("INACTIVE_MULT",         "0.12"))   # penalty multiplier for inactive
-    STAGNATION_BOX_PCT   = float(os.getenv("STAGNATION_BOX_PCT",   "0.15"))   # 15-min box tighter than this → stagnating
-    STAGNATION_WINDOW_SEC = float(os.getenv("STAGNATION_WINDOW_SEC","900"))    # look-back window (seconds)
-    STAGNATION_MULT      = float(os.getenv("STAGNATION_MULT",       "0.65"))   # penalty multiplier for stagnation
-
-    # ---- 1. INACTIVITY: Has the stock produced any meaningful range today? ----
     if range_pct_day < INACTIVE_RANGE_THR:
-        # Never really moved all day → dead stock, suppress heavily
         inactivity_mult = float(INACTIVE_MULT)
     else:
         inactivity_mult = 1.0
 
-    # ---- 2. STAGNATION: Is the stock flat RIGHT NOW vs earlier today? --------
-    #
-    # Key insight: a stock that moved +5% and is consolidating has
-    #   range_pct_day = 5% → passes inactivity check above (inactivity_mult=1.0)
-    # We still want a mild dampening if it has been completely flat for 15 min,
-    # so that an actively breaking-out stock ranks above it.
-    #
-    # We do NOT penalise further when range_pct_day < INACTIVE_RANGE_THR
-    # (inactivity already handles that case with a harder floor).
-    # --------------------------------------------------------------------------
     stagnation_mult = 1.0
     if market_is_open_ist() and inactivity_mult == 1.0:
         try:
@@ -1069,13 +1077,10 @@ def _compute_rfactor_row_snap(token: int, snap: Dict[str, Any]) -> Optional[Dict
                     box_pct  = ((hi_rec - lo_rec) / (day_open + eps)) * 100.0
 
                     if box_pct < float(STAGNATION_BOX_PCT):
-                        # Price has barely moved in the last 15 minutes
-                        # → mild dampening (not zero — it still had a big day)
                         stagnation_mult = float(STAGNATION_MULT)
         except Exception:
-            stagnation_mult = 1.0   # safe fallback — never crash RFactor
+            stagnation_mult = 1.0
 
-    # ---- Combined dampening ----
     sideways_combined = inactivity_mult * stagnation_mult
     rfactor_val      *= sideways_combined
     # ==========================================================================
@@ -1105,8 +1110,8 @@ def _compute_rfactor_row_snap(token: int, snap: Dict[str, Any]) -> Optional[Dict
         "rfactor":        float(rfactor_comp),
         "rfactor_raw":    float(rfactor_final),
         "recency_mult":   float(recency_mult),
-        "inactivity_mult": float(inactivity_mult),   # debug
-        "stagnation_mult": float(stagnation_mult),   # debug
+        "inactivity_mult": float(inactivity_mult),
+        "stagnation_mult": float(stagnation_mult),
         "dirr":           float(dirr),
         "ltp":            float(ltp),
         "day_open":       float(day_open),
@@ -1161,17 +1166,9 @@ def _compute_sector_aggregates_from_rr_with_daily(
     daily_map: Dict[int, Dict[str, Optional[float]]],
 ) -> Dict[str, Dict[str, float]]:
     """
-    Sector aggregates computed from per-token rr rows + daily stats:
-
-      - DirR: turnover-weighted momentum (sqrt(turnover) weighted mean of stock DirR)
-      - %ChangeMean: turnover-weighted mean of stock %Change (pct_open)
-      - RVOLm*: participation aggregates based on pct_open sign (buy/sell splits)
-      - RVOL5*: rolling 5-minute RVOL aggregates (buy/sell splits)
-
-    Returns:
-      dict[sector] -> metrics dict
+    Sector aggregates computed from per-token rr rows + daily stats.
     """
-    DIRR_CLIP_LOCAL = float(os.getenv("DIRR_CLIP", "8.0"))  # cap per-stock DirR contribution
+    DIRR_CLIP_LOCAL = float(os.getenv("DIRR_CLIP", "8.0"))
 
     now_ist = datetime.now(IST)
     now_epoch = time.time()
@@ -1196,14 +1193,12 @@ def _compute_sector_aggregates_from_rr_with_daily(
         if base_v is not None:
             return base_t, base_v
 
-        # fallback: earliest known cumvol
         for t, _p, v in series:
             if v is not None:
                 return float(t), float(v)
 
         return None, None
 
-    # Snapshot HOT_HISTORY once to avoid locking per cell while computing RVOL5
     hot_snap: Dict[int, List[Tuple[float, float, Optional[float]]]] = {}
     if want_rvol5:
         with LOCK:
@@ -1215,19 +1210,15 @@ def _compute_sector_aggregates_from_rr_with_daily(
     out: Dict[str, Dict[str, float]] = {}
 
     for sector, syms in SECTOR_DEFINITIONS.items():
-        # ---- DirR (money-flow / turnover weighted) ----
         dirr_num = 0.0
         dirr_den = 0.0
 
-        # ---- %Change mean (turnover weighted) ----
         chg_num = 0.0
         chg_den = 0.0
 
-        # ---- RVOLm aggregates ----
         buy_sum = sell_sum = 0.0
         buy_n = sell_n = 0
 
-        # ---- RVOL5 aggregates ----
         buy5_sum = sell5_sum = 0.0
         buy5_n = sell5_n = 0
 
@@ -1240,15 +1231,13 @@ def _compute_sector_aggregates_from_rr_with_daily(
             if not rr:
                 continue
 
-            # ---------- shared fields ----------
             ltp_ = float(rr.get("ltp") or 0.0)
             vol_ = float(rr.get("vol_today") or 0.0)
-            pct_open = rr.get("pct_open")  # may be None
+            pct_open = rr.get("pct_open")
 
             turnover = max(0.0, ltp_ * vol_)
-            w = math.sqrt(turnover + 1e-9)  # soft weight so one stock doesn't dominate
+            w = math.sqrt(turnover + 1e-9)
 
-            # ---------- DirR weighted ----------
             mom = float(rr.get("dirr") or 0.0)
             if mom > DIRR_CLIP_LOCAL:
                 mom = DIRR_CLIP_LOCAL
@@ -1258,7 +1247,6 @@ def _compute_sector_aggregates_from_rr_with_daily(
             dirr_num += mom * w
             dirr_den += w
 
-            # ---------- %Change weighted ----------
             if pct_open is not None:
                 try:
                     chg_num += float(pct_open) * w
@@ -1266,7 +1254,6 @@ def _compute_sector_aggregates_from_rr_with_daily(
                 except Exception:
                     pass
 
-            # ---------- RVOLm / RVOL5 buy-sell splits ----------
             st = daily_map.get(tok) or {}
             avg_vol_20 = st.get("avg_vol_20")
             if avg_vol_20 is None or pct_open is None:
@@ -1353,6 +1340,7 @@ def _compute_sector_aggregates_from_rr_with_daily(
 
     return out
 
+
 def _quantile_threshold(values: List[float], q: float) -> Optional[float]:
     if not values:
         return None
@@ -1423,7 +1411,7 @@ CACHE: Dict[str, Any] = {
     "hvhr_gainers": [],
     "hvhr_losers": [],
     "hot_gainers": [],
-    "momo_sector_gainers": [],   # [{"sector": "FMCG", "rows": [...]}, {"sector": "PHARMA", "rows": [...]}]
+    "momo_sector_gainers": [],
     "momo_sector_losers": [],
     "momo_sector_label": "",
     "hot_losers": [],
@@ -1431,7 +1419,6 @@ CACHE: Dict[str, Any] = {
     "sentiment": {"adv": 0, "dec": 0, "unch": 0, "total": 0, "score": 0.0, "label": "NEUTRAL"},
     "pcr": None,
 
-    # rolling last 5 min RVOL5 leaderboard
     "rvol5_buy": [],
     "rvol5_sell": [],
     "rvol5_label": "RVOL5: collecting…",
@@ -1469,6 +1456,33 @@ def start_compute_loop_once():
                 try:
                     snap = _snapshot_state(include_hot=False)
 
+                    # First pass: compute pct_open for all tokens to obtain market average
+                    pct_open_map: Dict[int, float] = {}
+                    for sym in ALL_SYMBOLS:
+                        tok = symbol_to_token.get(sym)
+                        if not tok:
+                            continue
+                        st = _get_live_or_eod_state_from_snap(tok, snap)
+                        if not st:
+                            continue
+                        ltp, _, ohlc = st
+                        op = ohlc.get("open")
+                        if op is None:
+                            continue
+                        try:
+                            opf = float(op)
+                            ltp = float(ltp)
+                            if opf > 0 and ltp > 0:
+                                pct_open_map[tok] = (ltp - opf) / opf * 100.0
+                        except Exception:
+                            continue
+
+                    if pct_open_map:
+                        market_pct = sum(pct_open_map.values()) / len(pct_open_map)
+                    else:
+                        market_pct = 0.0
+
+                    # Now compute full RFactor for each token using market_pct
                     rr_by_tok: Dict[int, Dict[str, float]] = {}
                     rows_basic: List[dict] = []
                     rfactor_vals: List[float] = []
@@ -1478,14 +1492,14 @@ def start_compute_loop_once():
                         if not tok:
                             continue
 
-                        rr = _compute_rfactor_row_snap(tok, snap)
+                        rr = _compute_rfactor_row_snap(tok, snap, market_pct=market_pct)
                         if not rr:
                             continue
 
                         pct_raw = float(rr["pct_open"])
                         rf_raw = float(rr["rfactor"])
 
-                        # ---- EMA smoothing (stabilizes rankings) ----
+                        # ---- EMA smoothing ----
                         prev = RFACTOR_EMA.get(tok)
                         rf_ema = rf_raw if prev is None else (
                             (RFACTOR_EMA_ALPHA * rf_raw) + ((1.0 - RFACTOR_EMA_ALPHA) * prev)
@@ -1500,15 +1514,15 @@ def start_compute_loop_once():
 
                         rows_basic.append({
                             "Symbol": sym,
-                            "%Change": round(pct_raw, 2),          # display
-                            "RFactor": round(float(rf_ema), 2),    # display
-                            "_pct_raw": pct_raw,                   # raw sort
-                            "_rf_sort": float(rf_ema),             # raw sort
+                            "%Change": round(pct_raw, 2),
+                            "RFactor": round(float(rf_ema), 2),
+                            "_pct_raw": pct_raw,
+                            "_rf_sort": float(rf_ema),
                             "Vol": int(rr.get("vol_today") or 0),
                         })
                         rfactor_vals.append(float(rf_ema))
 
-                    # ---- Top15 with stickiness (reduces churn) ----
+                    # ---- Top15 with stickiness ----
                     def sort_score(row: dict, prev_set: set[str]) -> float:
                         base = float(row.get("_rf_sort") or 0.0)
                         if TOP_STICKY_BONUS > 0 and row.get("Symbol") in prev_set:
@@ -1527,7 +1541,7 @@ def start_compute_loop_once():
                     _LAST_TOP15_G = set(r["Symbol"] for r in top15_gainers)
                     _LAST_TOP15_L = set(r["Symbol"] for r in top15_losers)
 
-                    # ---- HVHR bucket (top quantile of rfactor) ----
+                    # ---- HVHR bucket ----
                     thr = _quantile_threshold(rfactor_vals, float(HVHR_RFACTOR_Q)) if rfactor_vals else None
                     if thr is None:
                         hvhr_gainers, hvhr_losers = [], []
@@ -1549,7 +1563,7 @@ def start_compute_loop_once():
                     )
                     sentiment = _compute_market_sentiment_proxy_snap(snap)
 
-                    # ---- sector order (for heatmap grouping) ----
+                    # ---- sector order ----
                     sector_order = sorted(
                         SECTOR_DEFINITIONS.keys(),
                         key=lambda sec: float((sector_agg.get(sec) or {}).get("DirR") or 0.0),
@@ -1594,7 +1608,7 @@ def start_compute_loop_once():
                                 "value": float(turnover),
                             })
 
-                    # ---- /volm: Top 3 gainer sectors + Top 5 momentum stocks (abs), and Top 3 loser sectors + Top 5 momentum stocks (abs) ----
+                    # ---- /volm: Top 3 gainer/loser sectors ----
                     sec_scored = []
                     for sec in SECTOR_DEFINITIONS.keys():
                         d = (sector_agg.get(sec) or {})
@@ -1618,7 +1632,7 @@ def start_compute_loop_once():
                             rows.append({
                                 "Symbol": sym,
                                 "%Change": round(float(rr.get("pct_open") or 0.0), 2),
-                                "Momentum": round(mom, 2),  # signed display
+                                "Momentum": round(mom, 2),
                             })
 
                         rows.sort(key=lambda r: abs(float(r.get("Momentum") or 0.0)), reverse=True)
@@ -1636,7 +1650,6 @@ def start_compute_loop_once():
                         CACHE["sentiment"] = sentiment
                         CACHE["heatmap_rows"] = heat_rows
 
-                        # /volm data
                         CACHE["momo_sector_gainers"] = momo_sector_gainers
                         CACHE["momo_sector_losers"] = momo_sector_losers
 
@@ -2143,12 +2156,12 @@ def volm_page():
                 className="align-items-center g-2 mb-2",
             ),
 
-           html.H6("Top 3 Gainer Sectors", className="momo-section-heading mt-2"),
+            html.H6("Top 3 Gainer Sectors", className="momo-section-heading mt-2"),
             dbc.Row(
                 [
                     dbc.Col([html.H6(id="momo-g1-title", className="momo-sector-title mt-1"), _grid("momo-g1-grid")], md=4),
-dbc.Col([html.H6(id="momo-g2-title", className="momo-sector-title mt-1"), _grid("momo-g2-grid")], md=4),
-dbc.Col([html.H6(id="momo-g3-title", className="momo-sector-title mt-1"), _grid("momo-g3-grid")], md=4),
+                    dbc.Col([html.H6(id="momo-g2-title", className="momo-sector-title mt-1"), _grid("momo-g2-grid")], md=4),
+                    dbc.Col([html.H6(id="momo-g3-title", className="momo-sector-title mt-1"), _grid("momo-g3-grid")], md=4),
                 ],
                 className="g-2",
             ),
@@ -2158,15 +2171,16 @@ dbc.Col([html.H6(id="momo-g3-title", className="momo-sector-title mt-1"), _grid(
             html.H6("Top 3 Loser Sectors", className="momo-section-heading mt-2"),
             dbc.Row(
                 [
-                   dbc.Col([html.H6(id="momo-l1-title", className="momo-sector-title mt-1"), _grid("momo-l1-grid")], md=4),
-dbc.Col([html.H6(id="momo-l2-title", className="momo-sector-title mt-1"), _grid("momo-l2-grid")], md=4),
-dbc.Col([html.H6(id="momo-l3-title", className="momo-sector-title mt-1"), _grid("momo-l3-grid")], md=4),
+                    dbc.Col([html.H6(id="momo-l1-title", className="momo-sector-title mt-1"), _grid("momo-l1-grid")], md=4),
+                    dbc.Col([html.H6(id="momo-l2-title", className="momo-sector-title mt-1"), _grid("momo-l2-grid")], md=4),
+                    dbc.Col([html.H6(id="momo-l3-title", className="momo-sector-title mt-1"), _grid("momo-l3-grid")], md=4),
                 ],
                 className="g-2",
             ),
         ],
         className="page-wrap",
     )
+
 
 # =============================================================================
 # DASH ROOT LAYOUT
@@ -2230,6 +2244,7 @@ dash_app.layout = dbc.Container(
         sector_modal_component(),
     ],
 )
+
 
 # =============================================================================
 # ROUTER
@@ -2319,7 +2334,6 @@ def update_top_stats(_):
 
     with CACHE_LOCK:
         sm = dict(CACHE.get("sentiment") or {})
-        # pn = CACHE.get("pcr")  # kept if you want to show in top bar
 
     sent_label = str(sm.get("label") or "NEUTRAL").upper()
     sent_score = float(sm.get("score") or 0.0)
@@ -2401,8 +2415,8 @@ def toggle_baseline_mode(_n, mode):
 def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
     """
     Requested behavior:
-      - Only in Momentum mode (metric == 'DirR'): tooltip shows the scaled DirR number (no 'DirR' text).
-      - In all other sorts: tooltip shows ONLY the selected metric value (no DirR shown).
+      - Only in Momentum mode (metric == 'DirR'): tooltip shows scaled DirR number (no 'DirR' text).
+      - In all other sorts: tooltip shows ONLY selected metric value (no DirR shown).
     """
     try:
         baseline_mode = (baseline_mode or "AUTO").upper().strip()
@@ -2417,7 +2431,6 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
 
         sort_by = (sort_by or "DirR").strip()
 
-        # ----- map UI choice -> metric key in sector_agg -----
         if sort_by == "DirR":
             metric = "DirR"
         elif sort_by == "%Change":
@@ -2448,10 +2461,8 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         if not items:
             return html.Div("Loading sector bars…", className="hint")
 
-        # Only scale in Momentum mode
         plot_scale = float(SECTOR_DIRR_DISPLAY_SCALE) if metric == "DirR" else 1.0
 
-        # values for auto-capping/scaling the chart
         vals = [float(((m or {}).get(metric, 0.0)) or 0.0) * plot_scale for _, m in items]
         pos_vals = [v for v in vals if v > 0]
         neg_abs = [abs(v) for v in vals if v < 0]
@@ -2473,7 +2484,6 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         def soft01(x: float) -> float:
             return 1.0 - math.exp(-max(0.0, float(x)))
 
-        # formatters + caps by metric
         if metric == "DirR":
             CAP_Q, CAP_MUL, MIN_CAP = 0.92, 1.15, 0.03
             BAR_MIN_PX = 0.0
@@ -2498,7 +2508,6 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         neg_cap = cap_from_abs(neg_abs, CAP_Q, MIN_CAP, CAP_MUL)
         eps = 1e-9
 
-        # ----- Scaling & baseline -> converts metric value to pixel height -----
         if metric == "DirR" and baseline_mode == "CENTER":
             abs_cap = float(max(pos_cap, neg_cap, 1e-9))
             tick_max = abs_cap
@@ -2577,7 +2586,6 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
                     px = BAR_MIN_PX
                 return float(max(0.0, px))
 
-        # ----- Axis ticks -----
         ticks = [tick_max, tick_max / 2.0, 0.0, tick_min / 2.0, tick_min]
         axis_ticks = []
         for tv in ticks:
@@ -2587,19 +2595,15 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         axis = html.Div(axis_ticks, className="sector-hist-axis", style={"height": f"{TRACK_H}px"})
         children = [axis, html.Div(className="sector-hist-zero-line")]
 
-        # ----- Columns -----
         for sector, m in items:
             m = m or {}
 
             metric_raw = float(m.get(metric) or 0.0)
-            metric_plot = metric_raw * plot_scale  # only scales in Momentum mode
+            metric_plot = metric_raw * plot_scale
 
             disp = sector.replace("_", " ").upper()
             bar_px = to_px(metric_plot)
 
-            # Tooltip:
-            # - Momentum mode: show scaled DirR number ONLY (no text)
-            # - Other modes  : show selected metric only
             tip_val = fmt_tip(metric_plot) if metric == "DirR" else fmt_tip(metric_raw)
 
             children.append(
@@ -2671,6 +2675,7 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
             style={"color": "red", "padding": "20px", "fontSize": "14px"},
         )
 
+
 # =============================================================================
 # SECTOR MODAL ROWS
 # =============================================================================
@@ -2705,7 +2710,7 @@ def sector_rows_sorted(sector: str, sort_by: str = "RFactor"):
         if not tok:
             continue
 
-        rr = _compute_rfactor_row_snap(tok, snap)
+        rr = _compute_rfactor_row_snap(tok, snap, market_pct=0.0)  # market_pct optional for modal
         if not rr:
             continue
 
@@ -2916,7 +2921,7 @@ def update_volm_grids(_):
     with CACHE_LOCK:
         g = list(CACHE.get("momo_sector_gainers") or [])
         l = list(CACHE.get("momo_sector_losers") or [])
-        agg = dict(CACHE.get("sector_agg") or {})  # has DirR per sector
+        agg = dict(CACHE.get("sector_agg") or {})
 
     def _get(lst, i):
         return lst[i] if len(lst) > i else {"sector": "—", "rows": []}
@@ -2949,6 +2954,7 @@ def update_volm_grids(_):
         _title(l2["sector"], "var(--bad)"),
         _title(l3["sector"], "var(--bad)"),
     )
+
 
 @dash_app.callback(
     Output("market-heatmap", "figure"),

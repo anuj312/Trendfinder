@@ -198,10 +198,10 @@ SECTOR_DEFINITIONS = {
         "PAYTM", "POLICYBZR",
         "IIFL", "SBICARD",
         "JIOFIN", "SHRIRAMFIN",
-        "SAMMAANCAP", "ANGELONE",
+         "ANGELONE",
         "BSE", "CDSL", "MCX", "IRFC"
     ],
-    "BANK": [
+    "BANK": [ 
         "HDFCBANK", "ICICIBANK", "AXISBANK", "KOTAKBANK",
         "IDFCFIRSTB", "FEDERALBNK", "INDUSINDBK",
         "AUBANK", "BANDHANBNK", "RBLBANK"
@@ -211,7 +211,7 @@ SECTOR_DEFINITIONS = {
         "UNIONBANK", "BANKINDIA", "INDIANB",
     ],
     "DURABLES": [
-        "BHARTIARTL", "INDUSTOWER",
+        "INDUSTOWER",
         "HAVELLS", "KEI", "POLYCAB",
         "CROMPTON", "VOLTAS",
         "PGEL", "DIXON", "SRF"

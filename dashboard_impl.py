@@ -2004,7 +2004,7 @@ def sectors_page():
 
             dbc.Row(
                 [
-                    dbc.Col(html.H4("Sectors", className="page-title page-title--pill mb-0"), width="auto"),
+                    dbc.Col(html.H4("SECTOR MOMENTUM", className="page-title page-title--pill mb-0"), width="auto"),
                     dbc.Col(
                         html.Div(
                             [
@@ -2063,14 +2063,14 @@ def sectors_page():
                     [
                         dbc.Col(
                             [
-                                html.H6("Top 15 Gainers", className="tt-top15-title tt-top15-gainers"),
+                                html.H6("MARKET MOVERS", className="tt-top15-title tt-top15-gainers"),
                                 build_grid("top15-gainers-grid", "min(350px, 42vh)", top15_cols_desktop, grid_options_desktop),
                             ],
                             md=6,
                         ),
                         dbc.Col(
                             [
-                                html.H6("Top 15 Losers", className="tt-top15-title tt-top15-losers"),
+                                html.H6("MARKET LOSERS", className="tt-top15-title tt-top15-losers"),
                                 build_grid("top15-losers-grid", "350px", top15_cols_desktop, grid_options_desktop),
                             ],
                             md=6,
@@ -2084,9 +2084,9 @@ def sectors_page():
             html.Div(
                 dbc.Tabs(
                     [
-                        dbc.Tab(label="Top 15 Gainers",
+                        dbc.Tab(label="MARKET MOVERS",
                                 children=build_grid("top15-gainers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile)),
-                        dbc.Tab(label="Top 15 Losers",
+                        dbc.Tab(label="MARKET LOSERS",
                                 children=build_grid("top15-losers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile)),
                     ],
                     className="top15-tabs",

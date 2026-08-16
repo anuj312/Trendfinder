@@ -2002,7 +2002,7 @@ def sectors_page():
 
             dbc.Row(
                 [
-                    dbc.Col(html.H4("SECTOR MOMENTUM", className="page-title page-title--pill mb-0"), width="auto"),
+                    dbc.Col(html.H5("SECTOR FLOW", className="page-title page-title--pill mb-0"), width="auto"),
                     dbc.Col(
                         html.Div(
                             [

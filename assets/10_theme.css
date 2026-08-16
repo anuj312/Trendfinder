@@ -1658,3 +1658,42 @@ html[data-theme="light"]{
   opacity: 0.85;
   margin-top: 2px;
 }
+
+/* ==========================================================================
+   13) GLOBAL COMPACT SCALE (reduce everything slightly)
+   Change --tt-ui-scale to 0.90–0.97 as you like
+========================================================================== */
+:root{
+  --tt-ui-scale: 0.97;  /* 0.93 = ~7% smaller */
+}
+
+/* Best result (Chrome/Edge/Safari): scales ALL px-based sizing too */
+@supports (zoom: 1){
+  html{ zoom: var(--tt-ui-scale); }
+}
+
+/* Firefox fallback (no zoom): tighten the biggest elements a bit */
+@supports not (zoom: 1){
+  body{ font-size: 15px; } /* slightly smaller text */
+  :root{
+    --page-pad-x: clamp(10px, 2.0vw, 22px);
+    --page-pad-y: clamp(10px, 1.6vw, 18px);
+    --radius-lg: 20px;
+    --radius-md: 12px;
+  }
+
+  .theme-toggle{ width: 34px; height: 34px; }
+  .top-tab{ font-size: clamp(9px, 0.85vw, 11px); }
+
+  .dial-arc-wrap{
+    --dial-size: clamp(210px, 44vw, 305px);
+    --dial-baseline: 26px;
+  }
+  .dial-card{ padding: 20px; }
+
+  html .ag-theme-alpine-dark{
+    --ag-font-size: 12.5px;
+    --ag-header-height: 44px;
+    --ag-row-height: 36px;
+  }
+}

@@ -51,7 +51,7 @@ LOOKBACK_SESSIONS = 20
 HOT_WINDOW_SEC = 5 * 60
 HOT_SAMPLE_SEC = 5
 HOT_HISTORY_MAX_SEC = HOT_WINDOW_SEC + 10 * 60
-RFACTOR_LOG_SCALE = float(os.getenv("RFACTOR_LOG_SCALE", "2.9"))
+RFACTOR_LOG_SCALE = float(os.getenv("RFACTOR_LOG_SCALE", "3.5"))
 SECTOR_DIRR_DISPLAY_SCALE = float(os.getenv("SECTOR_DIRR_DISPLAY_SCALE", "1.95"))
 
 # Hot Now filters
@@ -800,18 +800,16 @@ def _get_live_or_eod_state_from_snap(token: int, snap: Dict[str, Any]) -> Option
     vol_today = snap["vol"].get(token)
     ohlc = snap["ohlc"].get(token) or {}
 
-    if (
-        ltp is not None
-        and vol_today is not None
-        and ohlc.get("open") is not None
-        and ohlc.get("close") is not None
-    ):
+    if market_is_open_ist():
+        # require live values; don't use yesterday intraday
+        if ltp is None or vol_today is None or ohlc.get("open") is None or ohlc.get("close") is None:
+            return None
         return float(ltp), float(vol_today), ohlc
 
+    # after hours: allow EOD snapshot
     e = (snap.get("eod") or {}).get(token)
     if not e or e.get("prev_close") is None:
         return None
-
     ohlc_eod = {"open": e["open"], "high": e["high"], "low": e["low"], "close": e["prev_close"]}
     return float(e["close"]), float(e["volume"]), ohlc_eod
 

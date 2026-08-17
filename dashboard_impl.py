@@ -76,8 +76,8 @@ COMPUTE_RVOL5_EVERY_SEC = float(os.getenv("COMPUTE_RVOL5_EVERY_SEC", "5.0"))
 COMPUTE_SLEEP_SEC = float(os.getenv("COMPUTE_SLEEP_SEC", "0.20"))
 
 RFACTOR_EMA: Dict[int, float] = {}
-TOP_STICKY_BONUS = float(os.getenv("TOP_STICKY_BONUS", "0.0"))    # 0.00 disables stickiness
-RFACTOR_EMA_ALPHA = float(os.getenv("RFACTOR_EMA_ALPHA", "0.45"))
+TOP_STICKY_BONUS = float(os.getenv("TOP_STICKY_BONUS", "0.15"))    # 0.00 disables stickiness
+RFACTOR_EMA_ALPHA = float(os.getenv("RFACTOR_EMA_ALPHA", "0.18"))
 
 _LAST_TOP15_G: set[str] = set()
 _LAST_TOP15_L: set[str] = set()
@@ -99,7 +99,7 @@ U_CURVE_READY = False
 U_CUM_FRAC: List[float] = []
 
 # Recency settings
-RECENCY_WEIGHT = float(os.getenv("RECENCY_WEIGHT", "1.0"))
+RECENCY_WEIGHT = float(os.getenv("RECENCY_WEIGHT", "0.60"))
 RECENCY_WINDOWS = [
     (300,  0.40),   # 5  min
     (900,  0.35),   # 15 min
@@ -107,11 +107,11 @@ RECENCY_WINDOWS = [
 ]
 
 # ---- NEW: RFactor weights (geometric mean) ----
-RFACTOR_W_VOL   = float(os.getenv("RFACTOR_W_VOL",   "0.5"))
-RFACTOR_W_RANGE = float(os.getenv("RFACTOR_W_RANGE", "0.3"))
-RFACTOR_W_MOVE  = float(os.getenv("RFACTOR_W_MOVE",  "0.2"))
+RFACTOR_W_VOL   = float(os.getenv("RFACTOR_W_VOL",   "0.55"))
+RFACTOR_W_RANGE = float(os.getenv("RFACTOR_W_RANGE", "0.30"))
+RFACTOR_W_MOVE  = float(os.getenv("RFACTOR_W_MOVE",  "0.15"))
 # ---- NEW: gap boost factor (0 disables) ----
-RFACTOR_GAP_BOOST = float(os.getenv("RFACTOR_GAP_BOOST", "0.15"))
+RFACTOR_GAP_BOOST = float(os.getenv("RFACTOR_GAP_BOOST", "0.00"))
 
 
 # =============================================================================

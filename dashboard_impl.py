@@ -800,13 +800,22 @@ def _get_live_or_eod_state_from_snap(token: int, snap: Dict[str, Any]) -> Option
     vol_today = snap["vol"].get(token)
     ohlc = snap["ohlc"].get(token) or {}
 
-    if market_is_open_ist():
-        # require live values; don't use yesterday intraday
-        if ltp is None or vol_today is None or ohlc.get("open") is None or ohlc.get("close") is None:
-            return None
+    # 1) If we have live data, use it ALWAYS (even after 15:30)
+    if (
+        ltp is not None
+        and vol_today is not None
+        and ohlc.get("open") is not None
+        and ohlc.get("high") is not None
+        and ohlc.get("low") is not None
+        and ohlc.get("close") is not None
+    ):
         return float(ltp), float(vol_today), ohlc
 
-    # after hours: allow EOD snapshot
+    # 2) During market hours: don't fallback to yesterday EOD
+    if market_is_open_ist():
+        return None
+
+    # 3) After hours: fallback to EOD snapshot (if live missing)
     e = (snap.get("eod") or {}).get(token)
     if not e or e.get("prev_close") is None:
         return None

@@ -74,10 +74,11 @@ COMPUTE_HOT_EVERY_SEC = float(os.getenv("COMPUTE_HOT_EVERY_SEC", "5.0"))
 COMPUTE_PCR_EVERY_SEC = float(os.getenv("COMPUTE_PCR_EVERY_SEC", "5.0"))
 COMPUTE_RVOL5_EVERY_SEC = float(os.getenv("COMPUTE_RVOL5_EVERY_SEC", "5.0"))
 COMPUTE_SLEEP_SEC = float(os.getenv("COMPUTE_SLEEP_SEC", "0.20"))
+TOP15_PCT_BAND = float(os.getenv("TOP15_PCT_BAND", "0.10"))  # ignore +/-0.10% noise
 
 RFACTOR_EMA: Dict[int, float] = {}
-TOP_STICKY_BONUS = float(os.getenv("TOP_STICKY_BONUS", "0.15"))    # 0.00 disables stickiness
-RFACTOR_EMA_ALPHA = float(os.getenv("RFACTOR_EMA_ALPHA", "0.18"))
+TOP_STICKY_BONUS = float(os.getenv("TOP_STICKY_BONUS", "0.35"))    # 0.00 disables stickiness
+RFACTOR_EMA_ALPHA = float(os.getenv("RFACTOR_EMA_ALPHA", "0.08"))
 
 _LAST_TOP15_G: set[str] = set()
 _LAST_TOP15_L: set[str] = set()
@@ -1536,8 +1537,9 @@ def start_compute_loop_once():
                             return base * (1.0 + TOP_STICKY_BONUS)
                         return base
 
-                    gainers = [r for r in rows_basic if float(r.get("_pct_raw") or 0.0) > 0.0]
-                    losers  = [r for r in rows_basic if float(r.get("_pct_raw") or 0.0) < 0.0]
+                    band = float(TOP15_PCT_BAND)
+                    gainers = [r for r in rows_basic if float(r.get("_pct_raw") or 0.0) >  band]
+                    losers  = [r for r in rows_basic if float(r.get("_pct_raw") or 0.0) < -band]
 
                     gainers.sort(key=lambda r: sort_score(r, _LAST_TOP15_G), reverse=True)
                     losers.sort(key=lambda r: sort_score(r, _LAST_TOP15_L), reverse=True)

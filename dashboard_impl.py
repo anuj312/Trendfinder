@@ -2592,10 +2592,10 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         score_mode = (sort_by == "SectorScore")
 
         # ----------------------------
-        # plot value function (controls height + sign/color)
+        # plot value = what controls bar height + sign/color
         # ----------------------------
         if score_mode:
-            # Height = SectorScore, Sign/Color = DirRRel sign
+            # Height = SectorScore; Sign/Color = DirRRel sign
             def plot_val(m: dict) -> float:
                 m = m or {}
                 score = float(m.get("SectorScore") or 0.0)
@@ -2614,7 +2614,7 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
             elif sort_by == "RVOL5Mean":
                 metric = "RVOL5NetMean"
             else:
-                metric = "RVOLmNetSum"  # "RVOLm"
+                metric = "RVOLmNetSum"
 
             def plot_val(m: dict) -> float:
                 return float((m or {}).get(metric) or 0.0)
@@ -2622,9 +2622,10 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
             plot_scale = float(SECTOR_DIRR_DISPLAY_SCALE) if metric == "DirRRel" else 1.0
 
         # ----------------------------
-        # ORDER (items: List[(sector, metrics_dict)])
+        # ORDER
         # ----------------------------
         if score_mode:
+            # Greens left: score desc ; Reds right: score asc (small->big)
             pos, neg = [], []
             for sector, m in agg.items():
                 m = m or {}
@@ -2635,30 +2636,27 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
                 else:
                     neg.append((score, sector, m))
 
-            # Greens: big -> small score
             pos.sort(key=lambda x: x[0], reverse=True)
-            # Reds: small -> big score (so it grows towards far right)
             neg.sort(key=lambda x: x[0])
-
             items = [(s, m) for (_sc, s, m) in pos] + [(s, m) for (_sc, s, m) in neg]
 
         else:
-            # Momentum special ordering (greens big->small; reds small->big)
             if sort_by == "DirR":
+                # Momentum ordering: greens big->small; reds SMALL->BIG (requested)
                 pos, neg = [], []
                 for sector, m in agg.items():
                     v = float((m or {}).get("DirRRel") or 0.0)
                     if v >= 0:
                         pos.append((v, sector, m or {}))
                     else:
-                        neg.append((abs(v), sector, m or {}))  # store abs for ordering
+                        neg.append((abs(v), sector, m or {}))  # abs for ordering
 
-                pos.sort(key=lambda x: x[0], reverse=True)   # big green -> small green
-                neg.sort(key=lambda x: x[0], reverse=False)  # small red  -> big red  (requested)
+                pos.sort(key=lambda x: x[0], reverse=True)
+                neg.sort(key=lambda x: x[0], reverse=False)  # small red -> big red
                 items = [(s, m) for (_v, s, m) in pos] + [(s, m) for (_v, s, m) in neg]
 
             else:
-                # Other metrics: simple descending
+                # other metrics: simple descending on plotted metric key
                 if sort_by == "%Change":
                     mkey = "%ChangeMean"
                 elif sort_by == "RVOLmMean":
@@ -2704,7 +2702,7 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         eps = 1e-9
 
         # ----------------------------
-        # caps + formatting
+        # caps + tick formatting
         # ----------------------------
         if score_mode:
             CAP_Q, CAP_MUL, MIN_CAP = 0.90, 1.15, 0.30
@@ -2732,7 +2730,7 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         neg_cap = cap_from_abs(neg_abs, CAP_Q, MIN_CAP, CAP_MUL)
 
         # ----------------------------
-        # map value -> px (Baseline CENTER / AUTO)
+        # value -> px (Baseline CENTER / AUTO)
         # ----------------------------
         if baseline_mode == "CENTER":
             abs_cap = float(max(pos_cap, neg_cap, 1e-9))
@@ -2798,28 +2796,32 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         children = [axis, html.Div(className="sector-hist-zero-line")]
 
         # ----------------------------
+        # tooltip formatter (ONLY 1 value, no extra lines)
+        # ----------------------------
+        def tooltip_value(sector_metrics: dict, v_scaled: float) -> str:
+            m = sector_metrics or {}
+            if sort_by == "SectorScore":
+                return f"{float(m.get('SectorScore') or 0.0):.2f}x"
+            if sort_by == "DirR":
+                return f"{float(v_scaled):+.2f}"
+            if sort_by == "%Change":
+                return f"{float(v_scaled):+.2f}%"
+            if sort_by in ("RVOLmMean", "RVOL5Mean", "RVOLm"):
+                return f"{float(v_scaled):.2f}x"
+            # fallback
+            return f"{float(v_scaled):.2f}"
+
+        # ----------------------------
         # bars
         # ----------------------------
         for sector, m in items:
             m = m or {}
             disp = sector.replace("_", " ").upper()
 
-            v = float(plot_val(m)) * plot_scale
-            bar_px = to_px(v)
+            v_scaled = float(plot_val(m)) * plot_scale
+            bar_px = to_px(v_scaled)
 
-            score = float(m.get("SectorScore") or 0.0)
-
-            # Hover text:
-            #   - Score mode: ONLY "1.69x"
-            #   - Others: keep existing richer tooltip
-            if score_mode:
-                tip_val = f"{score:.2f}x"
-            else:
-                up = int(float(m.get("Up") or 0))
-                down = int(float(m.get("Down") or 0))
-                # show plotted value + score + breadth-ish info
-                # (plotted value already scaled in v)
-                tip_val = f"{v:+.2f} • {score:.2f}x • {up}↑ {down}↓"
+            tip_val = tooltip_value(m, v_scaled)
 
             children.append(
                 dcc.Link(
@@ -2839,7 +2841,7 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
                             html.Div(
                                 [
                                     html.Div(
-                                        className=("sector-hist-bar pos" if v >= 0 else "sector-hist-bar neg"),
+                                        className=("sector-hist-bar pos" if v_scaled >= 0 else "sector-hist-bar neg"),
                                         style={"height": f"{bar_px:.2f}px"},
                                     )
                                 ],

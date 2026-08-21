@@ -204,7 +204,7 @@ SECTOR_DEFINITIONS = {
         "HDFCAMC", "360ONE",
         "KFINTECH", "NUVAMA",
         "PAYTM", "POLICYBZR",
-        "SBICARD",
+        "IIFL", "SBICARD",
         "JIOFIN", "SHRIRAMFIN",
         "ANGELONE",
         "BSE", "CDSL", "MCX", "IRFC"
@@ -1928,50 +1928,119 @@ def _extract_sector_from_path(pn: str) -> Optional[str]:
 
 
 def _sector_modal_coldefs_desktop():
-    # TradeFinder-like: show RFact magnitude + direction separately
+    # Swap: show RFact in the PRICE column position, and Price in the R FACT position
     return [
         {"field": "Symbol", "headerName": "STOCK", "minWidth": 120, "flex": 1, "cellRenderer": "SymbolCell"},
         {"field": "Company", "headerName": "COMPANY", "minWidth": 180, "flex": 2, "cellRenderer": "CompanyLinkCell"},
-        {"field": "Price", "headerName": "PRICE", "minWidth": 105, "flex": 1, "type": "rightAligned", "cellRenderer": "Num2Cell"},
+
+        # --- RFact shown where Price used to be ---
         {
-            "field": "%Change", "headerName": "%CHG", "minWidth": 95, "flex": 1, "type": "rightAligned",
+            "field": "RFact",
+            "headerName": "MOMENTUM",
+            "minWidth": 105,
+            "flex": 1,
+            "type": "rightAligned",
+            "cellRenderer": "Num2Cell",
+            "cellClass": "cell-rfact-blue",   # blue
+        },
+
+        {
+            "field": "%Change",
+            "headerName": "%CHG",
+            "minWidth": 95,
+            "flex": 1,
+            "type": "rightAligned",
             "cellRenderer": "Pct2Cell",
             "cellClassRules": {"cell-pos": "params.value > 0", "cell-neg": "params.value < 0"},
         },
+
+        # --- Price shown where RFact used to be ---
         {
-            "field": "RFact", "headerName": "R FACT", "minWidth": 90, "flex": 1, "type": "rightAligned",
+            "field": "Price",
+            "headerName": "PRICE",
+            "minWidth": 90,
+            "flex": 1,
+            "type": "rightAligned",
             "cellRenderer": "Num2Cell",
         },
+
         {
-            "field": "Signal", "headerName": "SIGNAL", "minWidth": 85, "flex": 1, "type": "rightAligned",
+            "field": "Signal",
+            "headerName": "SIGNAL",
+            "minWidth": 85,
+            "flex": 1,
+            "type": "rightAligned",
             "valueFormatter": {"function": "params.value>0?'↑':(params.value<0?'↓':'—')"},
             "cellClassRules": {"cell-pos": "params.value > 0", "cell-neg": "params.value < 0"},
         },
         {
-            "field": "RVOL5", "headerName": "RVOLm5", "minWidth": 95, "flex": 1, "type": "rightAligned",
+            "field": "RVOL5",
+            "headerName": "RVOLm5",
+            "minWidth": 95,
+            "flex": 1,
+            "type": "rightAligned",
             "valueFormatter": {"function": "params.value == null ? '—' : (params.value.toFixed(1) + 'x')"},
         },
-        {"field": "RVOLm", "headerName": "RVOLm", "minWidth": 90, "flex": 1, "type": "rightAligned", "cellRenderer": "Num2Cell"},
+        {
+            "field": "RVOLm",
+            "headerName": "RVOLm",
+            "minWidth": 90,
+            "flex": 1,
+            "type": "rightAligned",
+            "cellRenderer": "Num2Cell",
+        },
     ]
-
 
 def _sector_modal_coldefs_mobile():
     return [
         {"field": "Symbol", "headerName": "STOCK", "minWidth": 92, "flex": 2, "cellRenderer": "SymbolCell"},
-        {"field": "Price", "headerName": "Price", "minWidth": 70, "flex": 1, "type": "rightAligned", "cellRenderer": "Num2Cell"},
+
+        # RFact in the "Price" spot
         {
-            "field": "%Change", "headerName": "%CHG", "minWidth": 68, "flex": 1, "type": "rightAligned",
+            "field": "RFact",
+            "headerName": "MOM",
+            "minWidth": 70,
+            "flex": 1,
+            "type": "rightAligned",
+            "cellRenderer": "Num2Cell",
+            "cellClass": "cell-rfact-blue",   # blue
+        },
+
+        {
+            "field": "%Change",
+            "headerName": "%CHG",
+            "minWidth": 68,
+            "flex": 1,
+            "type": "rightAligned",
             "cellRenderer": "Pct2Cell",
             "cellClassRules": {"cell-pos": "params.value > 0", "cell-neg": "params.value < 0"},
         },
-        {"field": "RFact", "headerName": "R", "minWidth": 58, "flex": 1, "type": "rightAligned", "cellRenderer": "Num2Cell"},
+
+        # Price in the "R" spot
         {
-            "field": "Signal", "headerName": "", "minWidth": 45, "flex": 1, "type": "rightAligned",
+            "field": "Price",
+            "headerName": "P",
+            "minWidth": 58,
+            "flex": 1,
+            "type": "rightAligned",
+            "cellRenderer": "Num2Cell",
+        },
+
+        {
+            "field": "Signal",
+            "headerName": "",
+            "minWidth": 45,
+            "flex": 1,
+            "type": "rightAligned",
             "valueFormatter": {"function": "params.value>0?'↑':(params.value<0?'↓':'—')"},
             "cellClassRules": {"cell-pos": "params.value > 0", "cell-neg": "params.value < 0"},
         },
         {
-            "field": "RVOL5", "headerName": "RV5", "minWidth": 58, "flex": 1, "type": "rightAligned",
+            "field": "RVOL5",
+            "headerName": "RV5",
+            "minWidth": 58,
+            "flex": 1,
+            "type": "rightAligned",
             "valueFormatter": {"function": "params.value == null ? '—' : (params.value.toFixed(1) + 'x')"},
         },
     ]
@@ -2114,36 +2183,36 @@ def sectors_page():
                     dbc.Col(
                         html.Div(
                             [
-                                # Desktop sort pills
+                                # Desktop: pills
                                 html.Div(
                                     dbc.RadioItems(
                                         id="sectors-sort",
                                         options=[
-                                            {"label": "Sort: Score",      "value": "SectorScore"},  # <-- NEW
-                                            {"label": "Sort: RVOLm",      "value": "RVOLm"},
-                                            {"label": "Sort: RVOLm Mean", "value": "RVOLmMean"},
-                                            {"label": "Sort: %Change",    "value": "%Change"},
-                                            {"label": "Sort: Momentum",   "value": "DirR"},
+                                            {"label": "SCORE",    "value": "SectorScore"},
+                                            {"label": "RVOLm",    "value": "RVOLm"},
+                                            {"label": "RVOLm μ",  "value": "RVOLmMean"},
+                                            {"label": "%CHG",     "value": "%Change"},
+                                            {"label": "MOMENTUM", "value": "DirR"},
                                         ],
-                                        value="DirR",  # change to "SectorScore" if you want Score default
+                                        value="SectorScore",  # <-- default SCORE
                                         inline=True,
                                         className="sectors-sort ms-2",
                                     ),
                                     className="desktop-only",
                                 ),
 
-                                # Mobile dropdown
+                                # Mobile: dropdown
                                 html.Div(
                                     dbc.Select(
                                         id="sectors-sort-dd",
                                         options=[
-                                            {"label": "Score",       "value": "SectorScore"},  # <-- NEW
-                                            {"label": "RVOLm",       "value": "RVOLm"},
-                                            {"label": "RVOLm Mean",  "value": "RVOLmMean"},
-                                            {"label": "RVOLm5 Mean", "value": "RVOL5Mean"},
-                                            {"label": "Momentum",    "value": "DirR"},
+                                            {"label": "SCORE",    "value": "SectorScore"},
+                                            {"label": "RVOLm",    "value": "RVOLm"},
+                                            {"label": "RVOLm μ",  "value": "RVOLmMean"},
+                                            {"label": "RVOLm5 μ", "value": "RVOL5Mean"},
+                                            {"label": "MOMENTUM", "value": "DirR"},
                                         ],
-                                        value="DirR",  # change to "SectorScore" if you want Score default
+                                        value="SectorScore",  # <-- default SCORE
                                         size="sm",
                                         className="sectors-sort-dd",
                                     ),
@@ -2170,31 +2239,20 @@ def sectors_page():
             html.Div(id="sector-bars", className="sector-bars-wrap"),
             html.Hr(),
 
-            # Desktop: movers + losers side-by-side
             html.Div(
                 dbc.Row(
                     [
                         dbc.Col(
                             [
                                 html.H6("MARKET MOVERS", className="tt-top15-title tt-top15-gainers"),
-                                build_grid(
-                                    "top15-gainers-grid",
-                                    "min(350px, 42vh)",
-                                    top15_cols_desktop,
-                                    grid_options_desktop,
-                                ),
+                                build_grid("top15-gainers-grid", "min(350px, 42vh)", top15_cols_desktop, grid_options_desktop),
                             ],
                             md=6,
                         ),
                         dbc.Col(
                             [
                                 html.H6("MARKET LOSERS", className="tt-top15-title tt-top15-losers"),
-                                build_grid(
-                                    "top15-losers-grid",
-                                    "350px",
-                                    top15_cols_desktop,
-                                    grid_options_desktop,
-                                ),
+                                build_grid("top15-losers-grid", "350px", top15_cols_desktop, grid_options_desktop),
                             ],
                             md=6,
                         ),
@@ -2204,28 +2262,13 @@ def sectors_page():
                 className="desktop-only",
             ),
 
-            # Mobile: tabs
             html.Div(
                 dbc.Tabs(
                     [
-                        dbc.Tab(
-                            label="MARKET MOVERS",
-                            children=build_grid(
-                                "top15-gainers-grid-m",
-                                "60vh",
-                                top15_cols_mobile,
-                                grid_options_mobile,
-                            ),
-                        ),
-                        dbc.Tab(
-                            label="MARKET LOSERS",
-                            children=build_grid(
-                                "top15-losers-grid-m",
-                                "60vh",
-                                top15_cols_mobile,
-                                grid_options_mobile,
-                            ),
-                        ),
+                        dbc.Tab(label="MARKET MOVERS",
+                                children=build_grid("top15-gainers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile)),
+                        dbc.Tab(label="MARKET LOSERS",
+                                children=build_grid("top15-losers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile)),
                     ],
                     className="top15-tabs",
                 ),

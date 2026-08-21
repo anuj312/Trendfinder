@@ -204,7 +204,7 @@ SECTOR_DEFINITIONS = {
         "HDFCAMC", "360ONE",
         "KFINTECH", "NUVAMA",
         "PAYTM", "POLICYBZR",
-        "IIFL", "SBICARD",
+        "SBICARD",
         "JIOFIN", "SHRIRAMFIN",
         "ANGELONE",
         "BSE", "CDSL", "MCX", "IRFC"

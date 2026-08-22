@@ -68,6 +68,21 @@ PCR_CACHE_TTL_SEC = int(os.getenv("PCR_CACHE_TTL_SEC", "20"))
 PCR_QUOTE_CHUNK = int(os.getenv("PCR_QUOTE_CHUNK", "180"))
 NIFTY_SPOT_SYMBOL = os.getenv("NIFTY_SPOT_SYMBOL", "NSE:NIFTY 50")
 
+# ORB (live breakout timing)
+ORB_MINUTES = int(os.getenv("ORB_MINUTES", "15"))
+
+ORB_STATE: Dict[int, Dict[str, Any]] = {}   # token -> {orh, orl, done, brk_label, day}
+
+# =============================================================================
+# ORB "late start" seed (from today's 5-minute candles)
+# =============================================================================
+ORB_SEED_ENABLED = (os.getenv("ORB_SEED_ENABLED", "1").strip() == "1")
+ORB_SEED_SLEEP_SEC = float(os.getenv("ORB_SEED_SLEEP_SEC", "0.35"))  # rate-limit
+
+ORB_SEED_QUEUE = deque()          # deque[int] tokens
+ORB_SEED_INFLIGHT: set[int] = set()
+ORB_SEED_STARTED = False
+
 # Background compute cadence
 COMPUTE_CORE_EVERY_SEC = float(os.getenv("COMPUTE_CORE_EVERY_SEC", "2.0"))
 COMPUTE_HOT_EVERY_SEC = float(os.getenv("COMPUTE_HOT_EVERY_SEC", "5.0"))
@@ -329,7 +344,190 @@ def _hot_history_push(token: int, epoch: float, ltp: float, cumvol: Optional[flo
     cutoff = epoch - HOT_HISTORY_MAX_SEC
     while dq and dq[0][0] < cutoff:
         dq.popleft()
+        
+        
+def _to_ist_dt(ts: Any) -> datetime:
+    # Kite ticks give datetime, sometimes tz-naive.
+    if isinstance(ts, datetime):
+        dt = ts
+    else:
+        dt = datetime.now(IST)
 
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=IST)
+    else:
+        dt = dt.astimezone(IST)
+    return dt
+
+
+def _floor_to_5m(dt: datetime) -> datetime:
+    m = (dt.minute // 5) * 5
+    return dt.replace(minute=m, second=0, microsecond=0)
+
+
+def _orb_update_from_tick(token: int, ltp: float, ts: Any):
+    """
+    Tick-based ORB:
+      - Build ORH/ORL from 09:15 to 09:15+ORB_MINUTES
+      - After that window, first cross sets brk_label like '10:05↑' / '11:20↓'
+    """
+    dt = _to_ist_dt(ts)
+    d = dt.date()
+
+    s = ORB_STATE.get(token)
+    if (s is None) or (s.get("day") != d):
+        s = {"day": d, "orh": None, "orl": None, "done": False, "brk_label": "—"}
+        ORB_STATE[token] = s
+
+    m_open = dt.replace(hour=9, minute=15, second=0, microsecond=0)
+    m_end  = m_open + timedelta(minutes=int(ORB_MINUTES))
+
+    # before / during OR window: build ORH/ORL from ticks
+    if dt < m_end:
+        orh = s["orh"]
+        orl = s["orl"]
+        s["orh"] = float(ltp) if orh is None else max(float(orh), float(ltp))
+        s["orl"] = float(ltp) if orl is None else min(float(orl), float(ltp))
+        return
+
+    # after OR window: detect first break
+    if s.get("done"):
+        return
+
+    orh = s.get("orh")
+    orl = s.get("orl")
+    if orh is None or orl is None:
+        return
+
+    if float(ltp) > float(orh):
+        t = _floor_to_5m(dt).strftime("%H:%M")
+        s["brk_label"] = f"{t}↑"
+        s["done"] = True
+    elif float(ltp) < float(orl):
+        t = _floor_to_5m(dt).strftime("%H:%M")
+        s["brk_label"] = f"{t}↓"
+        s["done"] = True
+def orb_seed_request(token: int) -> None:
+    """Queue token for ORB seeding if ORH/ORL not known for today."""
+    if not ORB_SEED_ENABLED:
+        return
+
+    now_ist = datetime.now(IST)
+    m_open = now_ist.replace(hour=9, minute=15, second=0, microsecond=0)
+    m_end = m_open + timedelta(minutes=int(ORB_MINUTES))
+
+    # If before OR window ends, no need to seed
+    if now_ist < m_end:
+        return
+
+    with LOCK:
+        s = ORB_STATE.get(token)
+        # If state exists & ORH/ORL already computed for today -> no need
+        if s and s.get("day") == now_ist.date() and (s.get("orh") is not None) and (s.get("orl") is not None):
+            return
+
+        if token in ORB_SEED_INFLIGHT:
+            return
+
+        ORB_SEED_INFLIGHT.add(token)
+        ORB_SEED_QUEUE.append(token)
+
+def _orb_seed_from_today_5m(token: int) -> None:
+    now_ist = datetime.now(IST)
+    d = now_ist.date()
+
+    start_dt = datetime.combine(d, dtime(9, 15), tzinfo=IST)
+    end_dt = min(now_ist, datetime.combine(d, dtime(15, 30), tzinfo=IST))
+
+    # if market not started yet
+    if end_dt <= start_dt:
+        return
+
+    candles = kite.historical_data(
+        instrument_token=int(token),
+        from_date=start_dt,
+        to_date=end_dt,
+        interval="5minute",
+        continuous=False,
+        oi=False,
+    )
+    df = pd.DataFrame(candles)
+    if df.empty:
+        return
+
+    df["date"] = pd.to_datetime(df["date"])
+    if df["date"].dt.tz is None:
+        df["date"] = df["date"].dt.tz_localize(IST)
+    else:
+        df["date"] = df["date"].dt.tz_convert(IST)
+    df = df.sort_values("date").reset_index(drop=True)
+
+    orb_end = start_dt + timedelta(minutes=int(ORB_MINUTES))
+    or_df = df[df["date"] < orb_end]
+    after = df[df["date"] >= orb_end]
+
+    if or_df.empty:
+        return
+
+    orh = float(or_df["high"].max())
+    orl = float(or_df["low"].min())
+
+    # Find FIRST breakout/breakdown candle (wick-based, like your backtest default)
+    brk_label = "—"
+    done = False
+
+    if not after.empty:
+        for _, row in after.iterrows():
+            ts = row["date"].to_pydatetime()
+            # display 5-minute bucket start
+            t_bucket = _floor_to_5m(ts).strftime("%H:%M")
+
+            if float(row["high"]) > orh:
+                brk_label = f"{t_bucket}↑"
+                done = True
+                break
+            if float(row["low"]) < orl:
+                brk_label = f"{t_bucket}↓"
+                done = True
+                break
+
+    # Store into ORB_STATE so live ticks + UI can use it
+    with LOCK:
+        ORB_STATE[token] = {
+            "day": d,
+            "orh": float(orh),
+            "orl": float(orl),
+            "done": bool(done),
+            "brk_label": str(brk_label),
+        }
+def start_orb_seed_worker_once() -> None:
+    global ORB_SEED_STARTED
+    if ORB_SEED_STARTED or not ORB_SEED_ENABLED:
+        return
+    ORB_SEED_STARTED = True
+
+    def _run():
+        while True:
+            token = None
+            with LOCK:
+                if ORB_SEED_QUEUE:
+                    token = ORB_SEED_QUEUE.popleft()
+
+            if token is None:
+                time.sleep(0.20)
+                continue
+
+            try:
+                _orb_seed_from_today_5m(int(token))
+            except Exception:
+                log.exception("ORB seed failed token=%s", token)
+            finally:
+                with LOCK:
+                    ORB_SEED_INFLIGHT.discard(int(token))
+
+            time.sleep(float(ORB_SEED_SLEEP_SEC))
+
+    threading.Thread(target=_run, daemon=True).start()                
 
 # =============================================================================
 # TICK PROCESSING
@@ -351,6 +549,7 @@ def update_from_tick(tick: dict):
         LAST_OHLC[token] = ohlc
 
     _hot_history_push(token, time.time(), float(ltp), float(cumvol) if cumvol is not None else None)
+    _orb_update_from_tick(token, float(ltp), ts)
     return ts
 
 # =============================================================================
@@ -1528,6 +1727,13 @@ _compute_started = False
 
 
 def start_compute_loop_once():
+    """
+    Background compute loop.
+
+    Adds:
+      - 'Burst' field to Top15 rows (from ORB_STATE[token]['brk_label'])
+      - Late-start ORB seeding: requests orb_seed_request() for tokens that appear in Top15
+    """
     global _compute_started
     if _compute_started:
         return
@@ -1556,13 +1762,16 @@ def start_compute_loop_once():
                         tok = symbol_to_token.get(sym)
                         if not tok:
                             continue
+
                         st = _get_live_or_eod_state_from_snap(tok, snap)
                         if not st:
                             continue
+
                         ltp, _, ohlc = st
                         op = ohlc.get("open")
                         if op is None:
                             continue
+
                         try:
                             opf = float(op)
                             ltp = float(ltp)
@@ -1602,10 +1811,15 @@ def start_compute_loop_once():
                         rr_stable["dirr"] = (1.0 if pct_raw >= 0 else -1.0) * float(rf_ema)
                         rr_by_tok[tok] = rr_stable
 
+                        # ---- Burst label (ORB breakout time) ----
+                        with LOCK:
+                            burst = (ORB_STATE.get(tok) or {}).get("brk_label") or "—"
+
                         rows_basic.append({
                             "Symbol": sym,
                             "%Change": round(pct_raw, 2),
                             "RFactor": round(float(rf_ema), 2),
+                            "Burst": str(burst),           # <--- NEW
                             "_pct_raw": pct_raw,
                             "_rf_sort": float(rf_ema),
                             "Vol": int(rr.get("vol_today") or 0),
@@ -1631,6 +1845,13 @@ def start_compute_loop_once():
 
                     _LAST_TOP15_G = set(r["Symbol"] for r in top15_gainers)
                     _LAST_TOP15_L = set(r["Symbol"] for r in top15_losers)
+
+                    # ---- Late-start ORB seed: only tokens currently shown ----
+                    for r in (top15_gainers + top15_losers):
+                        sym = r.get("Symbol")
+                        tok = symbol_to_token.get(sym)
+                        if tok:
+                            orb_seed_request(int(tok))
 
                     # ---- HVHR bucket ----
                     thr = _quantile_threshold(rfactor_vals, float(HVHR_RFACTOR_Q)) if rfactor_vals else None
@@ -1827,8 +2048,6 @@ def start_compute_loop_once():
             time.sleep(float(COMPUTE_SLEEP_SEC))
 
     threading.Thread(target=_run, daemon=True).start()
-
-
 # =============================================================================
 # TICKER
 # =============================================================================
@@ -1974,13 +2193,12 @@ def _sector_modal_coldefs_desktop():
             "cellClassRules": {"cell-pos": "params.value > 0", "cell-neg": "params.value < 0"},
         },
         {
-            "field": "RVOL5",
-            "headerName": "RVOLm5",
-            "minWidth": 95,
-            "flex": 1,
-            "type": "rightAligned",
-            "valueFormatter": {"function": "params.value == null ? '—' : (params.value.toFixed(1) + 'x')"},
-        },
+    "field": "Burst",
+    "headerName": "BURST",
+    "minWidth": 95,
+    "flex": 1,
+    "type": "rightAligned",
+},
         {
             "field": "RVOLm",
             "headerName": "RVOLm",
@@ -2036,13 +2254,12 @@ def _sector_modal_coldefs_mobile():
             "cellClassRules": {"cell-pos": "params.value > 0", "cell-neg": "params.value < 0"},
         },
         {
-            "field": "RVOL5",
-            "headerName": "RV5",
-            "minWidth": 58,
-            "flex": 1,
-            "type": "rightAligned",
-            "valueFormatter": {"function": "params.value == null ? '—' : (params.value.toFixed(1) + 'x')"},
-        },
+         "field": "Burst",
+         "headerName": "BRK",
+         "minWidth": 62,
+         "flex": 1,
+         "type": "rightAligned",
+       },
     ]
 
 
@@ -2132,6 +2349,11 @@ def sectors_page():
          "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
         {"field": "RFactor", "headerName": "MOMENTUM", "cellRenderer": "RfactorPill", "minWidth": 110, "flex": 1,
          "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
+
+        # NEW: Burst time
+        {"field": "Burst", "headerName": "BURST", "minWidth": 90, "flex": 1,
+         "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
+
         {"field": "Vol", "headerName": "VOLUME", "cellRenderer": "VolPill", "minWidth": 120, "flex": 1,
          "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
     ]
@@ -2141,8 +2363,13 @@ def sectors_page():
          "headerClass": "h-left", "cellClass": "c-left"},
         {"field": "%Change", "headerName": "%CHG", "cellRenderer": "PctPill", "minWidth": 70, "flex": 1,
          "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
-        {"field": "RFactor", "headerName": "MOMENTUM", "cellRenderer": "RfactorPill", "minWidth": 74, "flex": 1,
+        {"field": "RFactor", "headerName": "MOM", "cellRenderer": "RfactorPill", "minWidth": 74, "flex": 1,
          "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
+
+        # NEW: Break time (short header)
+        {"field": "Burst", "headerName": "BRK", "minWidth": 62, "flex": 1,
+         "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
+
         {"field": "Vol", "headerName": "VOL", "cellRenderer": "VolPill", "minWidth": 78, "flex": 1,
          "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
     ]
@@ -2183,7 +2410,6 @@ def sectors_page():
                     dbc.Col(
                         html.Div(
                             [
-                                # Desktop: pills
                                 html.Div(
                                     dbc.RadioItems(
                                         id="sectors-sort",
@@ -2194,14 +2420,13 @@ def sectors_page():
                                             {"label": "%CHG",     "value": "%Change"},
                                             {"label": "MOMENTUM", "value": "DirR"},
                                         ],
-                                        value="SectorScore",  # <-- default SCORE
+                                        value="SectorScore",
                                         inline=True,
                                         className="sectors-sort ms-2",
                                     ),
                                     className="desktop-only",
                                 ),
 
-                                # Mobile: dropdown
                                 html.Div(
                                     dbc.Select(
                                         id="sectors-sort-dd",
@@ -2212,7 +2437,7 @@ def sectors_page():
                                             {"label": "RVOLm5 μ", "value": "RVOL5Mean"},
                                             {"label": "MOMENTUM", "value": "DirR"},
                                         ],
-                                        value="SectorScore",  # <-- default SCORE
+                                        value="SectorScore",
                                         size="sm",
                                         className="sectors-sort-dd",
                                     ),
@@ -2938,37 +3163,27 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
 # SECTOR MODAL ROWS (TradeFinder-like: sort by RFact, show Signal separately)
 # =============================================================================
 def sector_rows_sorted(sector: str, sort_by: str = "RFact"):
-    def _cumvol_at_or_before(series: List[Tuple[float, float, Optional[float]]], cutoff_epoch: float):
-        base_t = None
-        base_v = None
-        for t, _p, v in series:
-            if float(t) <= float(cutoff_epoch):
-                if v is not None:
-                    base_t = float(t)
-                    base_v = float(v)
-            else:
-                break
-        if base_v is not None:
-            return base_t, base_v
-
-        for t, _p, v in series:
-            if v is not None:
-                return float(t), float(v)
-        return None, None
-
-    rows = []
+    """
+    Sector modal rows.
+    Change requested:
+      - Show Burst instead of RVOL5
+    Also:
+      - Request late-start ORB seed for these tokens (so Burst works even if app started late)
+    """
+    rows: List[dict] = []
     now_ist = datetime.now(IST)
-    now_epoch = time.time()
-    tf_now = _time_factor_ist_for_rvol(now_ist)
 
     snap = _snapshot_state(include_hot=False)
 
-    for s in SECTOR_DEFINITIONS.get(sector, []):
-        tok = symbol_to_token.get(s)
+    for sym in SECTOR_DEFINITIONS.get(sector, []):
+        tok = symbol_to_token.get(sym)
         if not tok:
             continue
 
-        rr = _compute_rfactor_row_snap(tok, snap, market_pct=0.0)  # modal uses 0.0 for simplicity
+        # Late-start ORB seed request (non-blocking)
+        orb_seed_request(int(tok))
+
+        rr = _compute_rfactor_row_snap(tok, snap, market_pct=0.0)
         if not rr:
             continue
 
@@ -2976,10 +3191,11 @@ def sector_rows_sorted(sector: str, sort_by: str = "RFact"):
         ltp = float(rr["ltp"])
         vol_today = float(rr["vol_today"])
 
-        # use EMA-smoothed RFact if available
+        # EMA-smoothed RFact if available
         rf = float(RFACTOR_EMA.get(tok) or rr.get("rfactor") or 0.0)
         signal = 1 if pct_open > 0 else (-1 if pct_open < 0 else 0)
 
+        # RVOLm
         tf_day = _time_factor_ist_for_rvol(now_ist)
         st = (snap.get("daily") or {}).get(tok) or {}
         avg_vol_20 = st.get("avg_vol_20")
@@ -2994,38 +3210,18 @@ def sector_rows_sorted(sector: str, sort_by: str = "RFact"):
             except Exception:
                 rvolm = None
 
-        rvol5 = None
-        if market_is_open_ist(now_ist) and avg_vol_20 is not None:
-            try:
-                av = float(avg_vol_20)
-                if av > 0:
-                    cutoff_epoch = now_epoch - float(RVOL5_WINDOW_SEC)
-                    with LOCK:
-                        dq = HOT_HISTORY.get(tok)
-                        series = list(dq) if dq else None
-
-                    if series and len(series) >= 2:
-                        base_t, base_v = _cumvol_at_or_before(series, cutoff_epoch)
-                        if base_t is not None and base_v is not None:
-                            vol5 = float(vol_today) - float(base_v)
-                            if vol5 >= 0:
-                                eff_sec = max(5.0, min(float(RVOL5_WINDOW_SEC), now_epoch - float(base_t)))
-                                then_ist = now_ist - timedelta(seconds=eff_sec)
-                                tf_then = _time_factor_ist_for_rvol(then_ist)
-                                frac = max(1e-4, float(tf_now) - float(tf_then))
-                                exp5 = av * frac
-                                rvol5 = float(vol5) / (float(exp5) + 1e-9)
-            except Exception:
-                rvol5 = None
+        # Burst label
+        with LOCK:
+            burst = (ORB_STATE.get(tok) or {}).get("brk_label") or "—"
 
         rows.append({
-            "Symbol": s,
-            "Company": symbol_to_name.get(s, ""),
-            "Price": float(ltp),
-            "%Change": float(pct_open),
+            "Symbol": sym,
+            "Company": symbol_to_name.get(sym, ""),
             "RFact": float(rf),
+            "%Change": float(pct_open),
+            "Price": float(ltp),
             "Signal": int(signal),
-            "RVOL5": (float(rvol5) if rvol5 is not None else None),
+            "Burst": str(burst),                       # <--- Burst instead of RVOL5
             "RVOLm": (float(rvolm) if rvolm is not None else None),
         })
 
@@ -3033,9 +3229,7 @@ def sector_rows_sorted(sector: str, sort_by: str = "RFact"):
         return []
 
     sb = (sort_by or "").strip().upper()
-    if sb in ("RVOL5", "RVOLM5", "RVOL_5"):
-        key = "RVOL5"
-    elif sb in ("RVOL", "RVOLM"):
+    if sb in ("RVOL", "RVOLM"):
         key = "RVOLm"
     elif sb in ("RFACT", "R FACT", "RFACTOR"):
         key = "RFact"
@@ -3236,6 +3430,7 @@ async def _startup():
     seed_daily_stats_once(per_req_sleep=SEED_SLEEP_SEC)
     start_ticker_once()
     load_nfo_instruments_once()
+    start_orb_seed_worker_once()   
     start_compute_loop_once()
     await openinterest.on_startup()
 

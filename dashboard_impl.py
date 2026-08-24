@@ -530,14 +530,6 @@ def start_orb_seed_worker_once() -> None:
 # TICK PROCESSING
 # =============================================================================
 def update_from_tick(tick: dict) -> Optional[datetime]:
-    """
-    Ingest one Kite tick into in-memory state.
-
-    Clean fixes vs earlier version:
-      - Always uses an IST-aware datetime for ts (prevents ORB clock issues in prod)
-      - Accepts exchange_timestamp OR timestamp, else falls back to datetime.now(IST)
-      - Normalizes numeric fields defensively
-    """
     token = tick.get("instrument_token")
     if token is None:
         return None
@@ -565,30 +557,20 @@ def update_from_tick(tick: dict) -> Optional[datetime]:
             cumvol_f = None
 
     ohlc = tick.get("ohlc") or {}
-    if isinstance(ohlc, dict) and ohlc:
-        # best-effort numeric normalization
-        for k in ("open", "high", "low", "close"):
-            if k in ohlc and ohlc[k] is not None:
-                try:
-                    ohlc[k] = float(ohlc[k])
-                except Exception:
-                    pass
-    else:
+    if not isinstance(ohlc, dict):
         ohlc = {}
 
-    # IMPORTANT: keep ORB logic timezone-correct even if exchange_timestamp missing
-    raw_ts = tick.get("exchange_timestamp") or tick.get("timestamp")
-    ts_dt = _to_ist_dt(raw_ts)  # always returns IST-aware datetime
+    # Prefer exchange_timestamp; fallback to timestamp; final fallback MUST be IST-aware
+    raw_ts = tick.get("exchange_timestamp") or tick.get("timestamp") or datetime.now(IST)
+    ts_dt = _to_ist_dt(raw_ts)   # returns IST-aware datetime
 
-    # Write live state (caller holds LOCK in on_ticks)
     LAST_PRICE[token] = ltp_f
     if cumvol_f is not None:
         DAY_VOL[token] = cumvol_f
     if ohlc:
         LAST_OHLC[token] = ohlc
 
-    now_epoch = time.time()
-    _hot_history_push(token, now_epoch, ltp_f, cumvol_f)
+    _hot_history_push(token, time.time(), ltp_f, cumvol_f)
     _orb_update_from_tick(token, ltp_f, ts_dt)
 
     return ts_dt

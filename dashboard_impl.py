@@ -346,15 +346,26 @@ def _hot_history_push(token: int, epoch: float, ltp: float, cumvol: Optional[flo
         dq.popleft()
         
         
-def _to_ist_dt(ts: Any) -> datetime:
-    if not isinstance(ts, datetime):
-        return datetime.now(IST)
+UTC = ZoneInfo("UTC")
 
-    dt = ts
-    if dt.tzinfo is None:
-        # Kite naive timestamps are effectively IST -> assume IST
-        return dt.replace(tzinfo=IST)
-    return dt.astimezone(IST)
+def _to_ist_dt(ts: Any) -> datetime:
+    now_ist = datetime.now(IST)
+
+    if not isinstance(ts, datetime):
+        return now_ist
+
+    # tz-aware -> convert
+    if ts.tzinfo is not None:
+        return ts.astimezone(IST)
+
+    # tz-naive -> could be IST (local dev) OR UTC (Render)
+    as_ist = ts.replace(tzinfo=IST)
+    as_utc = ts.replace(tzinfo=UTC).astimezone(IST)
+
+    # pick the interpretation closest to current IST time
+    if abs((as_utc - now_ist).total_seconds()) < abs((as_ist - now_ist).total_seconds()):
+        return as_utc
+    return as_ist
 
 
 def _floor_to_5m(dt: datetime) -> datetime:
@@ -369,6 +380,9 @@ def _orb_update_from_tick(token: int, ltp: float, ts: Any):
       - After that window, first cross sets brk_label like '10:05↑' / '11:20↓'
     """
     dt = _to_ist_dt(ts)
+    now_ist = datetime.now(IST)
+    if abs((dt - now_ist).total_seconds()) > 3600:
+     dt = now_ist
     d = dt.date()
 
     s = ORB_STATE.get(token)

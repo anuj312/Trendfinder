@@ -347,17 +347,14 @@ def _hot_history_push(token: int, epoch: float, ltp: float, cumvol: Optional[flo
         
         
 def _to_ist_dt(ts: Any) -> datetime:
-    # Kite ticks give datetime, sometimes tz-naive.
-    if isinstance(ts, datetime):
-        dt = ts
-    else:
-        dt = datetime.now(IST)
+    if not isinstance(ts, datetime):
+        return datetime.now(IST)
 
+    dt = ts
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=IST)
-    else:
-        dt = dt.astimezone(IST)
-    return dt
+        # Kite naive timestamps are effectively IST -> assume IST
+        return dt.replace(tzinfo=IST)
+    return dt.astimezone(IST)
 
 
 def _floor_to_5m(dt: datetime) -> datetime:
@@ -532,25 +529,69 @@ def start_orb_seed_worker_once() -> None:
 # =============================================================================
 # TICK PROCESSING
 # =============================================================================
-def update_from_tick(tick: dict):
-    token = tick["instrument_token"]
-    ltp = tick.get("last_price")
-    cumvol = tick.get("volume_traded")
-    ohlc = tick.get("ohlc") or {}
-    ts = tick.get("exchange_timestamp") or datetime.now()
+def update_from_tick(tick: dict) -> Optional[datetime]:
+    """
+    Ingest one Kite tick into in-memory state.
 
-    if ltp is None:
+    Clean fixes vs earlier version:
+      - Always uses an IST-aware datetime for ts (prevents ORB clock issues in prod)
+      - Accepts exchange_timestamp OR timestamp, else falls back to datetime.now(IST)
+      - Normalizes numeric fields defensively
+    """
+    token = tick.get("instrument_token")
+    if token is None:
+        return None
+    try:
+        token = int(token)
+    except Exception:
         return None
 
-    LAST_PRICE[token] = float(ltp)
+    ltp = tick.get("last_price")
+    if ltp is None:
+        return None
+    try:
+        ltp_f = float(ltp)
+    except Exception:
+        return None
+    if ltp_f <= 0:
+        return None
+
+    cumvol_f: Optional[float] = None
+    cumvol = tick.get("volume_traded")
     if cumvol is not None:
-        DAY_VOL[token] = float(cumvol)
+        try:
+            cumvol_f = float(cumvol)
+        except Exception:
+            cumvol_f = None
+
+    ohlc = tick.get("ohlc") or {}
+    if isinstance(ohlc, dict) and ohlc:
+        # best-effort numeric normalization
+        for k in ("open", "high", "low", "close"):
+            if k in ohlc and ohlc[k] is not None:
+                try:
+                    ohlc[k] = float(ohlc[k])
+                except Exception:
+                    pass
+    else:
+        ohlc = {}
+
+    # IMPORTANT: keep ORB logic timezone-correct even if exchange_timestamp missing
+    raw_ts = tick.get("exchange_timestamp") or tick.get("timestamp")
+    ts_dt = _to_ist_dt(raw_ts)  # always returns IST-aware datetime
+
+    # Write live state (caller holds LOCK in on_ticks)
+    LAST_PRICE[token] = ltp_f
+    if cumvol_f is not None:
+        DAY_VOL[token] = cumvol_f
     if ohlc:
         LAST_OHLC[token] = ohlc
 
-    _hot_history_push(token, time.time(), float(ltp), float(cumvol) if cumvol is not None else None)
-    _orb_update_from_tick(token, float(ltp), ts)
-    return ts
+    now_epoch = time.time()
+    _hot_history_push(token, now_epoch, ltp_f, cumvol_f)
+    _orb_update_from_tick(token, ltp_f, ts_dt)
+
+    return ts_dt
 
 # =============================================================================
 # U-SHAPED PACING CURVE (fallback)

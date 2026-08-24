@@ -2229,12 +2229,17 @@ def _sector_modal_coldefs_desktop():
             "valueFormatter": {"function": "params.value>0?'↑':(params.value<0?'↓':'—')"},
             "cellClassRules": {"cell-pos": "params.value > 0", "cell-neg": "params.value < 0"},
         },
-        {
+     {
     "field": "Burst",
-    "headerName": "BURST",
+    "headerName": "BURST",   # or "BRK" on mobile
     "minWidth": 95,
     "flex": 1,
     "type": "rightAligned",
+    "cellClass": "cell-burst",
+    "cellClassRules": {
+        "burst-up": "params.value && params.value.includes('↑')",
+        "burst-down": "params.value && params.value.includes('↓')",
+    },
 },
         {
             "field": "RVOLm",
@@ -2291,12 +2296,17 @@ def _sector_modal_coldefs_mobile():
             "cellClassRules": {"cell-pos": "params.value > 0", "cell-neg": "params.value < 0"},
         },
         {
-         "field": "Burst",
-         "headerName": "BRK",
-         "minWidth": 62,
-         "flex": 1,
-         "type": "rightAligned",
-       },
+    "field": "Burst",
+    "headerName": "BRK",   # or "BRK" on mobile
+    "minWidth": 95,
+    "flex": 1,
+    "type": "rightAligned",
+    "cellClass": "cell-burst",
+    "cellClassRules": {
+        "burst-up": "params.value && params.value.includes('↑')",
+        "burst-down": "params.value && params.value.includes('↓')",
+    },
+},
     ]
 
 
@@ -2379,38 +2389,111 @@ def sector_modal_component():
 # PAGES
 # =============================================================================
 def sectors_page():
+    # --- Column defs (Top15) ---
+    burst_rules = {
+        "burst-up": "params.value && params.value.includes('↑')",
+        "burst-down": "params.value && params.value.includes('↓')",
+    }
+
     top15_cols_desktop = [
-        {"field": "Symbol", "headerName": "STOCK", "cellRenderer": "SymbolCell", "minWidth": 140, "flex": 2,
-         "headerClass": "h-left", "cellClass": "c-left"},
-        {"field": "%Change", "headerName": "%CHG", "cellRenderer": "PctPill", "minWidth": 110, "flex": 1,
-         "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
-        {"field": "RFactor", "headerName": "MOMENTUM", "cellRenderer": "RfactorPill", "minWidth": 110, "flex": 1,
-         "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
-
-        # NEW: Burst time
-        {"field": "Burst", "headerName": "BURST", "minWidth": 110, "flex": 1,
-         "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
-
-        {"field": "Vol", "headerName": "VOLUME", "cellRenderer": "VolPill", "minWidth": 120, "flex": 1,
-         "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
+        {
+            "field": "Symbol",
+            "headerName": "STOCK",
+            "cellRenderer": "SymbolCell",
+            "minWidth": 140,
+            "flex": 2,
+            "headerClass": "h-left",
+            "cellClass": "c-left",
+        },
+        {
+            "field": "%Change",
+            "headerName": "%CHG",
+            "cellRenderer": "PctPill",
+            "minWidth": 110,
+            "flex": 1,
+            "headerClass": "ag-right-aligned-header",
+            "cellClass": "ag-right-aligned-cell",
+        },
+        {
+            "field": "RFactor",
+            "headerName": "MOMENTUM",
+            "cellRenderer": "RfactorPill",
+            "minWidth": 110,
+            "flex": 1,
+            "headerClass": "ag-right-aligned-header",
+            "cellClass": "ag-right-aligned-cell",
+        },
+        # Burst (colored ↑/↓ + smaller font via CSS class cell-burst)
+        {
+            "field": "Burst",
+            "headerName": "BURST",
+            "minWidth": 90,
+            "flex": 1,
+            "headerClass": "ag-right-aligned-header",
+            "cellClass": "ag-right-aligned-cell cell-burst",
+            "cellClassRules": burst_rules,
+        },
+        {
+            "field": "Vol",
+            "headerName": "VOLUME",
+            "cellRenderer": "VolPill",
+            "minWidth": 120,
+            "flex": 1,
+            "headerClass": "ag-right-aligned-header",
+            "cellClass": "ag-right-aligned-cell",
+        },
     ]
 
     top15_cols_mobile = [
-        {"field": "Symbol", "headerName": "STOCK", "cellRenderer": "SymbolCell", "minWidth": 88, "flex": 2,
-         "headerClass": "h-left", "cellClass": "c-left"},
-        {"field": "%Change", "headerName": "%CHG", "cellRenderer": "PctPill", "minWidth": 70, "flex": 1,
-         "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
-        {"field": "RFactor", "headerName": "MOM", "cellRenderer": "RfactorPill", "minWidth": 74, "flex": 1,
-         "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
-
-        # NEW: Break time (short header)
-        {"field": "Burst", "headerName": "BRK", "minWidth": 62, "flex": 1,
-         "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
-
-        {"field": "Vol", "headerName": "VOL", "cellRenderer": "VolPill", "minWidth": 78, "flex": 1,
-         "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
+        {
+            "field": "Symbol",
+            "headerName": "STOCK",
+            "cellRenderer": "SymbolCell",
+            "minWidth": 88,
+            "flex": 2,
+            "headerClass": "h-left",
+            "cellClass": "c-left",
+        },
+        {
+            "field": "%Change",
+            "headerName": "%CHG",
+            "cellRenderer": "PctPill",
+            "minWidth": 70,
+            "flex": 1,
+            "headerClass": "ag-right-aligned-header",
+            "cellClass": "ag-right-aligned-cell",
+        },
+        {
+            "field": "RFactor",
+            "headerName": "MOM",
+            "cellRenderer": "RfactorPill",
+            "minWidth": 74,
+            "flex": 1,
+            "headerClass": "ag-right-aligned-header",
+            "cellClass": "ag-right-aligned-cell",
+        },
+        # Burst (short header on mobile)
+        {
+            "field": "Burst",
+            "headerName": "BRK",
+            "minWidth": 62,
+            "flex": 1,
+            "headerClass": "ag-right-aligned-header",
+            "cellClass": "ag-right-aligned-cell cell-burst",
+            "cellClassRules": burst_rules,
+        },
+        {
+            "field": "Vol",
+            "headerName": "VOL",
+            "cellRenderer": "VolPill",
+            "minWidth": 78,
+            "flex": 1,
+            "headerClass": "ag-right-aligned-header",
+            "cellClass": "ag-right-aligned-cell",
+        },
     ]
 
+    # --- Grid options ---
     grid_options_desktop = {
         "getRowId": {"function": "params.data.Symbol"},
         "animateRows": False,
@@ -2463,7 +2546,6 @@ def sectors_page():
                                     ),
                                     className="desktop-only",
                                 ),
-
                                 html.Div(
                                     dbc.Select(
                                         id="sectors-sort-dd",
@@ -2480,7 +2562,6 @@ def sectors_page():
                                     ),
                                     className="mobile-only",
                                 ),
-
                                 dbc.Button(
                                     html.I(className="bi bi-sliders2-vertical"),
                                     id="baseline-toggle",
@@ -2501,20 +2582,31 @@ def sectors_page():
             html.Div(id="sector-bars", className="sector-bars-wrap"),
             html.Hr(),
 
+            # Desktop: two columns
             html.Div(
                 dbc.Row(
                     [
                         dbc.Col(
                             [
                                 html.H6("MARKET MOVERS", className="tt-top15-title tt-top15-gainers"),
-                                build_grid("top15-gainers-grid", "min(350px, 42vh)", top15_cols_desktop, grid_options_desktop),
+                                build_grid(
+                                    "top15-gainers-grid",
+                                    "min(350px, 42vh)",
+                                    top15_cols_desktop,
+                                    grid_options_desktop,
+                                ),
                             ],
                             md=6,
                         ),
                         dbc.Col(
                             [
                                 html.H6("MARKET LOSERS", className="tt-top15-title tt-top15-losers"),
-                                build_grid("top15-losers-grid", "350px", top15_cols_desktop, grid_options_desktop),
+                                build_grid(
+                                    "top15-losers-grid",
+                                    "350px",
+                                    top15_cols_desktop,
+                                    grid_options_desktop,
+                                ),
                             ],
                             md=6,
                         ),
@@ -2524,13 +2616,28 @@ def sectors_page():
                 className="desktop-only",
             ),
 
+            # Mobile: tabs
             html.Div(
                 dbc.Tabs(
                     [
-                        dbc.Tab(label="MARKET MOVERS",
-                                children=build_grid("top15-gainers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile)),
-                        dbc.Tab(label="MARKET LOSERS",
-                                children=build_grid("top15-losers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile)),
+                        dbc.Tab(
+                            label="MARKET MOVERS",
+                            children=build_grid(
+                                "top15-gainers-grid-m",
+                                "60vh",
+                                top15_cols_mobile,
+                                grid_options_mobile,
+                            ),
+                        ),
+                        dbc.Tab(
+                            label="MARKET LOSERS",
+                            children=build_grid(
+                                "top15-losers-grid-m",
+                                "60vh",
+                                top15_cols_mobile,
+                                grid_options_mobile,
+                            ),
+                        ),
                     ],
                     className="top15-tabs",
                 ),
@@ -2556,7 +2663,6 @@ def sectors_page():
         ],
         className="page-wrap",
     )
-
 
 def volm_page():
     cols = [

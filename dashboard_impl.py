@@ -2388,7 +2388,7 @@ def sectors_page():
          "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
 
         # NEW: Burst time
-        {"field": "Burst", "headerName": "BURST", "minWidth": 90, "flex": 1,
+        {"field": "Burst", "headerName": "BURST", "minWidth": 110, "flex": 1,
          "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
 
         {"field": "Vol", "headerName": "VOLUME", "cellRenderer": "VolPill", "minWidth": 120, "flex": 1,

@@ -1748,3 +1748,8 @@ border-radius: 14px !important;
 .ag-theme-alpine-dark .burst-down{
   color: var(--bad);
 }
+
+.burst-wrap { white-space: nowrap; }
+.burst-time { color: inherit; }
+.burst-arrow-up   { color: #2ed573; font-weight: 900; padding-left: 2px; }
+.burst-arrow-down { color: #ff4757; font-weight: 900; padding-left: 2px; }

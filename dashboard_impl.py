@@ -2229,17 +2229,14 @@ def _sector_modal_coldefs_desktop():
             "valueFormatter": {"function": "params.value>0?'↑':(params.value<0?'↓':'—')"},
             "cellClassRules": {"cell-pos": "params.value > 0", "cell-neg": "params.value < 0"},
         },
-     {
+         {
     "field": "Burst",
-    "headerName": "BURST",   # or "BRK" on mobile
+    "headerName": "BURST",
     "minWidth": 95,
     "flex": 1,
     "type": "rightAligned",
-    "cellClass": "cell-burst",
-    "cellClassRules": {
-        "burst-up": "params.value && params.value.includes('↑')",
-        "burst-down": "params.value && params.value.includes('↓')",
-    },
+    "cellRenderer": "BurstCell",                     # ✅ ONLY ARROW COLORED
+    "cellClass": "ag-right-aligned-cell cell-burst", # optional (font size)
 },
         {
             "field": "RVOLm",
@@ -2295,17 +2292,14 @@ def _sector_modal_coldefs_mobile():
             "valueFormatter": {"function": "params.value>0?'↑':(params.value<0?'↓':'—')"},
             "cellClassRules": {"cell-pos": "params.value > 0", "cell-neg": "params.value < 0"},
         },
-        {
+          {
     "field": "Burst",
-    "headerName": "BRK",   # or "BRK" on mobile
-    "minWidth": 95,
+    "headerName": "BRK",
+    "minWidth": 62,
     "flex": 1,
     "type": "rightAligned",
-    "cellClass": "cell-burst",
-    "cellClassRules": {
-        "burst-up": "params.value && params.value.includes('↑')",
-        "burst-down": "params.value && params.value.includes('↓')",
-    },
+    "cellRenderer": "BurstCell",                     # ✅
+    "cellClass": "ag-right-aligned-cell cell-burst",
 },
     ]
 
@@ -2356,6 +2350,7 @@ def sector_modal_component():
                                 defaultColDef={"sortable": True, "filter": True, "resizable": True, "flex": 1},
                                 dashGridOptions=grid_opts_desktop,
                                 style={"height": "65vh", "width": "100%"},
+                                dangerously_allow_code=True,
                             ),
                             className="desktop-only",
                         ),
@@ -2368,6 +2363,7 @@ def sector_modal_component():
                                 defaultColDef={"sortable": True, "filter": False, "resizable": True, "flex": 1},
                                 dashGridOptions=grid_opts_mobile,
                                 style={"height": "72vh", "width": "100%"},
+                                dangerously_allow_code=True,
                             ),
                             className="mobile-only",
                         ),
@@ -2390,10 +2386,6 @@ def sector_modal_component():
 # =============================================================================
 def sectors_page():
     # --- Column defs (Top15) ---
-    burst_rules = {
-        "burst-up": "params.value && params.value.includes('↑')",
-        "burst-down": "params.value && params.value.includes('↓')",
-    }
 
     top15_cols_desktop = [
         {
@@ -2423,7 +2415,7 @@ def sectors_page():
             "headerClass": "ag-right-aligned-header",
             "cellClass": "ag-right-aligned-cell",
         },
-        # Burst (colored ↑/↓ + smaller font via CSS class cell-burst)
+        # ✅ Burst uses BurstCell (arrow colored, time normal)
         {
             "field": "Burst",
             "headerName": "BURST",
@@ -2431,7 +2423,7 @@ def sectors_page():
             "flex": 1,
             "headerClass": "ag-right-aligned-header",
             "cellClass": "ag-right-aligned-cell cell-burst",
-            "cellClassRules": burst_rules,
+            "cellRenderer": "BurstCell",
         },
         {
             "field": "Vol",
@@ -2472,7 +2464,7 @@ def sectors_page():
             "headerClass": "ag-right-aligned-header",
             "cellClass": "ag-right-aligned-cell",
         },
-        # Burst (short header on mobile)
+        # ✅ Burst uses BurstCell
         {
             "field": "Burst",
             "headerName": "BRK",
@@ -2480,7 +2472,7 @@ def sectors_page():
             "flex": 1,
             "headerClass": "ag-right-aligned-header",
             "cellClass": "ag-right-aligned-cell cell-burst",
-            "cellClassRules": burst_rules,
+            "cellRenderer": "BurstCell",
         },
         {
             "field": "Vol",
@@ -2518,6 +2510,7 @@ def sectors_page():
             defaultColDef={"sortable": True, "resizable": True, "flex": 1},
             dashGridOptions=grid_opts,
             style={"height": height, "width": "100%"},
+            dangerously_allow_code=True,   # ✅ REQUIRED for JS renderers
         )
 
     return html.Div(
@@ -2582,31 +2575,20 @@ def sectors_page():
             html.Div(id="sector-bars", className="sector-bars-wrap"),
             html.Hr(),
 
-            # Desktop: two columns
             html.Div(
                 dbc.Row(
                     [
                         dbc.Col(
                             [
                                 html.H6("MARKET MOVERS", className="tt-top15-title tt-top15-gainers"),
-                                build_grid(
-                                    "top15-gainers-grid",
-                                    "min(350px, 42vh)",
-                                    top15_cols_desktop,
-                                    grid_options_desktop,
-                                ),
+                                build_grid("top15-gainers-grid", "min(350px, 42vh)", top15_cols_desktop, grid_options_desktop),
                             ],
                             md=6,
                         ),
                         dbc.Col(
                             [
                                 html.H6("MARKET LOSERS", className="tt-top15-title tt-top15-losers"),
-                                build_grid(
-                                    "top15-losers-grid",
-                                    "350px",
-                                    top15_cols_desktop,
-                                    grid_options_desktop,
-                                ),
+                                build_grid("top15-losers-grid", "350px", top15_cols_desktop, grid_options_desktop),
                             ],
                             md=6,
                         ),
@@ -2616,28 +2598,13 @@ def sectors_page():
                 className="desktop-only",
             ),
 
-            # Mobile: tabs
             html.Div(
                 dbc.Tabs(
                     [
-                        dbc.Tab(
-                            label="MARKET MOVERS",
-                            children=build_grid(
-                                "top15-gainers-grid-m",
-                                "60vh",
-                                top15_cols_mobile,
-                                grid_options_mobile,
-                            ),
-                        ),
-                        dbc.Tab(
-                            label="MARKET LOSERS",
-                            children=build_grid(
-                                "top15-losers-grid-m",
-                                "60vh",
-                                top15_cols_mobile,
-                                grid_options_mobile,
-                            ),
-                        ),
+                        dbc.Tab(label="MARKET MOVERS",
+                                children=build_grid("top15-gainers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile)),
+                        dbc.Tab(label="MARKET LOSERS",
+                                children=build_grid("top15-losers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile)),
                     ],
                     className="top15-tabs",
                 ),
@@ -2693,6 +2660,7 @@ def volm_page():
             defaultColDef={"sortable": True, "filter": True, "resizable": True},
             dashGridOptions=grid_opts,
             style={"height": "min(280px, 34vh)", "width": "100%"},
+            dangerously_allow_code=True, 
         )
 
     return html.Div(

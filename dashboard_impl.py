@@ -2385,7 +2385,19 @@ def sector_modal_component():
 # PAGES
 # =============================================================================
 def sectors_page():
-    # --- Column defs (Top15) ---
+    """
+    SECTOR FLOW page (clean):
+      - Two intervals:
+          * refresh_sectors     -> leaderboards/dials/heatmap (fast)
+          * refresh_sectorbars  -> sector bars (slower) so tooltips don't vanish while hovering
+      - Burst column uses JS renderer "BurstCell" (arrow colored, time normal)
+      - AgGrid has dangerously_allow_code=True (required for JS renderers/formatters)
+    """
+
+    # Top refresh (keep this fast for grids/heatmap/dials)
+    REFRESH_SECTORS_MS = 5000
+    # Sector bars refresh (slower so hover tooltip stays visible)
+    REFRESH_SECTORBARS_MS = 15000
 
     top15_cols_desktop = [
         {
@@ -2415,7 +2427,7 @@ def sectors_page():
             "headerClass": "ag-right-aligned-header",
             "cellClass": "ag-right-aligned-cell",
         },
-        # ✅ Burst uses BurstCell (arrow colored, time normal)
+        # ✅ Burst: arrow-only color handled by JS BurstCell
         {
             "field": "Burst",
             "headerName": "BURST",
@@ -2464,7 +2476,7 @@ def sectors_page():
             "headerClass": "ag-right-aligned-header",
             "cellClass": "ag-right-aligned-cell",
         },
-        # ✅ Burst uses BurstCell
+        # ✅ Burst: arrow-only color handled by JS BurstCell
         {
             "field": "Burst",
             "headerName": "BRK",
@@ -2485,7 +2497,6 @@ def sectors_page():
         },
     ]
 
-    # --- Grid options ---
     grid_options_desktop = {
         "getRowId": {"function": "params.data.Symbol"},
         "animateRows": False,
@@ -2510,12 +2521,14 @@ def sectors_page():
             defaultColDef={"sortable": True, "resizable": True, "flex": 1},
             dashGridOptions=grid_opts,
             style={"height": height, "width": "100%"},
-            dangerously_allow_code=True,   # ✅ REQUIRED for JS renderers
+            dangerously_allow_code=True,  # ✅ required for JS renderers/formatters
         )
 
     return html.Div(
         [
-            dcc.Interval(id="refresh_sectors", interval=5000, n_intervals=0),
+            # ✅ separate tickers so bars don't re-render too often (tooltip stays visible)
+            dcc.Interval(id="refresh_sectorbars", interval=REFRESH_SECTORBARS_MS, n_intervals=0),
+            dcc.Interval(id="refresh_sectors", interval=REFRESH_SECTORS_MS, n_intervals=0),
 
             dbc.Row(
                 [
@@ -2575,6 +2588,7 @@ def sectors_page():
             html.Div(id="sector-bars", className="sector-bars-wrap"),
             html.Hr(),
 
+            # Desktop: two columns
             html.Div(
                 dbc.Row(
                     [
@@ -2598,13 +2612,12 @@ def sectors_page():
                 className="desktop-only",
             ),
 
+            # Mobile: tabs
             html.Div(
                 dbc.Tabs(
                     [
-                        dbc.Tab(label="MARKET MOVERS",
-                                children=build_grid("top15-gainers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile)),
-                        dbc.Tab(label="MARKET LOSERS",
-                                children=build_grid("top15-losers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile)),
+                        dbc.Tab(label="MARKET MOVERS", children=build_grid("top15-gainers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile)),
+                        dbc.Tab(label="MARKET LOSERS", children=build_grid("top15-losers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile)),
                     ],
                     className="top15-tabs",
                 ),
@@ -2630,7 +2643,6 @@ def sectors_page():
         ],
         className="page-wrap",
     )
-
 def volm_page():
     cols = [
         {"field": "Symbol", "headerName": "STOCK", "cellRenderer": "SymbolCell", "minWidth": 120, "flex": 2},
@@ -2946,6 +2958,13 @@ def toggle_baseline_mode(_n, mode):
     Input("baseline-store", "data"),
 )
 def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
+    """
+    Sector bars with NON-CLIPPED tooltip (uses dbc.Tooltip overlay).
+
+    Key change vs your older version:
+      - Tooltip is now dbc.Tooltip targeted to the bar-track div id (secbar-<sector>)
+        so it won't get hidden/clipped near edges.
+    """
     try:
         # ----------------------------
         # resolve sort_by + baseline
@@ -2971,10 +2990,10 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         score_mode = (sort_by == "SectorScore")
 
         # ----------------------------
-        # plot value = what controls bar height + sign/color
+        # plot value = controls bar height + sign/color
         # ----------------------------
         if score_mode:
-            # Height = SectorScore; Sign/Color = DirRRel sign
+            # Height = SectorScore; sign/color = DirRRel sign
             def plot_val(m: dict) -> float:
                 m = m or {}
                 score = float(m.get("SectorScore") or 0.0)
@@ -3021,7 +3040,7 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
 
         else:
             if sort_by == "DirR":
-                # Momentum ordering: greens big->small; reds SMALL->BIG (requested)
+                # Momentum ordering: greens big->small; reds SMALL->BIG
                 pos, neg = [], []
                 for sector, m in agg.items():
                     v = float((m or {}).get("DirRRel") or 0.0)
@@ -3031,11 +3050,11 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
                         neg.append((abs(v), sector, m or {}))  # abs for ordering
 
                 pos.sort(key=lambda x: x[0], reverse=True)
-                neg.sort(key=lambda x: x[0], reverse=False)  # small red -> big red
+                neg.sort(key=lambda x: x[0], reverse=False)
                 items = [(s, m) for (_v, s, m) in pos] + [(s, m) for (_v, s, m) in neg]
 
             else:
-                # other metrics: simple descending on plotted metric key
+                # other metrics: simple descending
                 if sort_by == "%Change":
                     mkey = "%ChangeMean"
                 elif sort_by == "RVOLmMean":
@@ -3167,15 +3186,14 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         axis_ticks = []
         for tv in ticks:
             top_pct = ((tick_max - float(tv)) / (axis_span_ticks + eps)) * 100.0
-            axis_ticks.append(
-                html.Div(fmt_tick(tv), className="sector-axis-tick", style={"top": f"{top_pct:.2f}%"})
-            )
+            axis_ticks.append(html.Div(fmt_tick(tv), className="sector-axis-tick", style={"top": f"{top_pct:.2f}%"}))
 
         axis = html.Div(axis_ticks, className="sector-hist-axis", style={"height": f"{TRACK_H}px"})
+
         children = [axis, html.Div(className="sector-hist-zero-line")]
 
         # ----------------------------
-        # tooltip formatter (ONLY 1 value, no extra lines)
+        # tooltip value (single line)
         # ----------------------------
         def tooltip_value(sector_metrics: dict, v_scaled: float) -> str:
             m = sector_metrics or {}
@@ -3187,11 +3205,10 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
                 return f"{float(v_scaled):+.2f}%"
             if sort_by in ("RVOLmMean", "RVOL5Mean", "RVOLm"):
                 return f"{float(v_scaled):.2f}x"
-            # fallback
             return f"{float(v_scaled):.2f}"
 
         # ----------------------------
-        # bars
+        # bars (with dbc.Tooltip overlay)
         # ----------------------------
         for sector, m in items:
             m = m or {}
@@ -3199,56 +3216,65 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
 
             v_scaled = float(plot_val(m)) * plot_scale
             bar_px = to_px(v_scaled)
-
             tip_val = tooltip_value(m, v_scaled)
 
+            target_id = f"secbar-{sector}"  # unique + stable
+
             children.append(
-                dcc.Link(
-                    href=f"{BASE}sector/{sector}",
-                    className="sector-hist-link",
-                    refresh=False,
-                    children=html.Div(
-                        [
-                            html.Div(
-                                [
-                                    html.Div(disp, className="sector-hist-tip-name"),
-                                    html.Div(tip_val, className="sector-hist-tip-val"),
-                                ],
-                                className="sector-hist-tooltip",
-                                title=str(tip_val),
-                            ),
-                            html.Div(
+                html.Div(
+                    [
+                        dbc.Tooltip(
+                            [
+                                html.Div(disp, style={"fontWeight": "900"}),
+                                html.Div(tip_val, style={"fontWeight": "800"}),
+                            ],
+                            target=target_id,
+                            placement="top",
+                            delay={"show": 0, "hide": 0},
+                            className="tt-sec-tooltip",
+                        ),
+                        dcc.Link(
+                            href=f"{BASE}sector/{sector}",
+                            className="sector-hist-link",
+                            refresh=False,
+                            children=html.Div(
                                 [
                                     html.Div(
-                                        className=("sector-hist-bar pos" if v_scaled >= 0 else "sector-hist-bar neg"),
-                                        style={"height": f"{bar_px:.2f}px"},
-                                    )
+                                        [
+                                            html.Div(
+                                                className=("sector-hist-bar pos" if v_scaled >= 0 else "sector-hist-bar neg"),
+                                                style={"height": f"{bar_px:.2f}px"},
+                                            )
+                                        ],
+                                        id=target_id,  # tooltip target
+                                        className="sector-hist-track",
+                                        style={
+                                            "height": f"{TRACK_H}px",
+                                            "overflow": "hidden",
+                                            "clipPath": "inset(0 round 18px)",
+                                            "position": "relative",
+                                        },
+                                    ),
+                                    html.Div(
+                                        disp,
+                                        className="sector-hist-name",
+                                        style={
+                                            "height": f"{LABEL_BAND}px",
+                                            "display": "flex",
+                                            "alignItems": "center",
+                                            "justifyContent": "center",
+                                            "position": "relative",
+                                            "zIndex": 5,
+                                            "marginTop": "6px",
+                                        },
+                                    ),
                                 ],
-                                className="sector-hist-track",
-                                style={
-                                    "height": f"{TRACK_H}px",
-                                    "overflow": "hidden",
-                                    "clipPath": "inset(0 round 18px)",
-                                    "position": "relative",
-                                },
+                                className="sector-hist-col",
+                                style={"display": "flex", "flexDirection": "column", "alignItems": "center"},
                             ),
-                            html.Div(
-                                disp,
-                                className="sector-hist-name",
-                                style={
-                                    "height": f"{LABEL_BAND}px",
-                                    "display": "flex",
-                                    "alignItems": "center",
-                                    "justifyContent": "center",
-                                    "position": "relative",
-                                    "zIndex": 5,
-                                    "marginTop": "6px",
-                                },
-                            ),
-                        ],
-                        className="sector-hist-col",
-                        style={"display": "flex", "flexDirection": "column", "alignItems": "center"},
-                    ),
+                        ),
+                    ],
+                    className="sector-hist-item",
                 )
             )
 

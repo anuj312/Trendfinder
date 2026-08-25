@@ -1753,3 +1753,26 @@ border-radius: 14px !important;
 .burst-time { color: inherit; }
 .burst-arrow-up   { color: #2ed573; font-weight: 900; padding-left: 2px; }
 .burst-arrow-down { color: #ff4757; font-weight: 900; padding-left: 2px; }
+
+/* WHITE tooltip */
+.tooltip { z-index: 99999 !important; }
+
+.tt-sec-tooltip .tooltip-inner{
+  background: #ffffff !important;
+  color: #111827 !important;          /* near-black */
+  border: 1px solid rgba(17,24,39,0.12);
+  border-radius: 14px;
+  padding: 10px 12px;
+  box-shadow: 0 12px 34px rgba(0,0,0,0.18);
+  font-weight: 800;
+}
+
+/* arrow color (top placement) */
+.tt-sec-tooltip.bs-tooltip-top .tooltip-arrow::before{
+  border-top-color: #ffffff !important;
+}
+
+/* if sometimes placement changes (safe) */
+.tt-sec-tooltip.bs-tooltip-bottom .tooltip-arrow::before{ border-bottom-color:#ffffff !important; }
+.tt-sec-tooltip.bs-tooltip-start  .tooltip-arrow::before{ border-left-color:#ffffff !important; }
+.tt-sec-tooltip.bs-tooltip-end    .tooltip-arrow::before{ border-right-color:#ffffff !important; }

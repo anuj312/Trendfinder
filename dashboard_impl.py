@@ -1723,8 +1723,10 @@ def _compute_hot_row_from_series(series: List[Tuple[float, float, Optional[float
 
     base_pf = float(base_p)
     range_pct = (rng / (base_pf + 1e-9)) * 100.0
+
     up_spike_pct = (hi - base_pf) / (base_pf + 1e-9) * 100.0
-    down_spike_pct = (lo - base_pf) / (base_pf + 1e-9) * 100.0
+    down_spike_pct = (lo - base_pf) / (base_pf + 1e-9) * 100.0  # negative
+
     spike_pct = up_spike_pct if abs(up_spike_pct) >= abs(down_spike_pct) else down_spike_pct
 
     vol_win = None
@@ -1733,8 +1735,13 @@ def _compute_hot_row_from_series(series: List[Tuple[float, float, Optional[float
         if vol_win < 0:
             vol_win = None
 
-    return {"range_pct": float(range_pct), "spike_pct": float(spike_pct), "vol_win": vol_win}
-
+    return {
+        "range_pct": float(range_pct),
+        "spike_pct": float(spike_pct),
+        "up_spike_pct": float(up_spike_pct),
+        "down_spike_pct": float(down_spike_pct),
+        "vol_win": vol_win,
+    }
 
 # =============================================================================
 # BACKGROUND COMPUTE CACHE
@@ -2646,13 +2653,26 @@ def sectors_page():
 def volm_page():
     cols = [
         {"field": "Symbol", "headerName": "STOCK", "cellRenderer": "SymbolCell", "minWidth": 120, "flex": 2},
-        {"field": "%Change", "headerName": "%CHG", "cellRenderer": "PctPill", "minWidth": 90, "flex": 1,
-         "headerClass": "ag-right-aligned-header", "cellClass": "ag-right-aligned-cell"},
+
+        # abs spike divided by your threshold (HOT_MIN_RET_PCT)
         {
-            "field": "Momentum", "headerName": "MOMENTUM", "minWidth": 110, "flex": 1, "type": "rightAligned",
-            "cellRenderer": "Num2Cell",
+            "field": "SpikeX",
+            "headerName": "SPIKE×",
+            "minWidth": 85,
+            "flex": 1,
+            "type": "rightAligned",
+            "valueFormatter": {"function": "params.value==null?'—':(Number(params.value).toFixed(2)+'x')"},
+        },
+        {
+            "field": "Spike5",
+            "headerName": "SPIKE5%",
+            "minWidth": 90,
+            "flex": 1,
+            "type": "rightAligned",
+            "cellRenderer": "Pct2Cell",
             "cellClassRules": {"cell-pos": "params.value > 0", "cell-neg": "params.value < 0"},
         },
+      
     ]
 
     grid_opts = {
@@ -2672,7 +2692,7 @@ def volm_page():
             defaultColDef={"sortable": True, "filter": True, "resizable": True},
             dashGridOptions=grid_opts,
             style={"height": "min(280px, 34vh)", "width": "100%"},
-            dangerously_allow_code=True, 
+            dangerously_allow_code=True,
         )
 
     return html.Div(
@@ -2680,16 +2700,11 @@ def volm_page():
             dcc.Interval(id="refresh_volm", interval=5000, n_intervals=0),
 
             dbc.Row(
-                [
-                    dbc.Col(
-                        dcc.Link("← Back", href=BASE, className="stat-chip", style={"textDecoration": "none"}),
-                        width="auto",
-                    ),
-                ],
+                [dbc.Col(dcc.Link("← Back", href=BASE, className="stat-chip", style={"textDecoration": "none"}), width="auto")],
                 className="align-items-center g-2 mb-2",
             ),
 
-            html.H6("Top 3 Gainer Sectors", className="momo-section-heading mt-2"),
+            html.H6("Top 3 Gainer Sectors • 5-min Spike (Top 5)", className="momo-section-heading mt-2"),
             dbc.Row(
                 [
                     dbc.Col([html.H6(id="momo-g1-title", className="momo-sector-title mt-1"), _grid("momo-g1-grid")], md=4),
@@ -2701,7 +2716,7 @@ def volm_page():
 
             html.Hr(),
 
-            html.H6("Top 3 Loser Sectors", className="momo-section-heading mt-2"),
+            html.H6("Top 3 Loser Sectors • 5-min Spike (Top 5)", className="momo-section-heading mt-2"),
             dbc.Row(
                 [
                     dbc.Col([html.H6(id="momo-l1-title", className="momo-sector-title mt-1"), _grid("momo-l1-grid")], md=4),
@@ -3511,44 +3526,103 @@ def update_rfactor_leaderboards(_):
 )
 def update_volm_grids(_):
     with CACHE_LOCK:
-        g = list(CACHE.get("momo_sector_gainers") or [])
-        l = list(CACHE.get("momo_sector_losers") or [])
         agg = dict(CACHE.get("sector_agg") or {})
 
-    def _get(lst, i):
-        return lst[i] if len(lst) > i else {"sector": "—", "rows": []}
+    if not agg:
+        empty = []
+        return empty, empty, empty, empty, empty, empty, "—", "—", "—", "—", "—", "—"
+
+    # pick sectors by SectorScore, split by direction sign (DirRRel)
+    pos, neg = [], []
+    for sec, m in agg.items():
+        m = m or {}
+        score = float(m.get("SectorScore") or 0.0)
+        dirrrel = float(m.get("DirRRel") or 0.0)
+        (pos if dirrrel >= 0 else neg).append((score, sec))
+
+    pos.sort(key=lambda x: x[0], reverse=True)
+    neg.sort(key=lambda x: x[0], reverse=True)
+
+    top3 = [s for _sc, s in pos[:3]]
+    bot3 = [s for _sc, s in neg[:3]]
 
     def _title(sec: str, color_var: str):
-        if not sec or sec == "—":
+        if not sec:
             return "—"
-        # show market-relative leadership number in title
-        dirr = float((agg.get(sec) or {}).get("DirRRel") or 0.0) * float(SECTOR_DIRR_DISPLAY_SCALE)
-
+        m = agg.get(sec) or {}
+        score = float(m.get("SectorScore") or 0.0)
+        dirrrel = float(m.get("DirRRel") or 0.0) * float(SECTOR_DIRR_DISPLAY_SCALE)
         return html.Span(
             [
                 html.Span(sec.replace("_", " ")),
-                html.Span(
-                    f" ({dirr:+.2f})",
-                    style={"color": color_var, "fontWeight": "950"},
-                ),
+                html.Span(f"  {score:.2f}x", style={"fontWeight": "950"}),
+                html.Span(f" ({dirrrel:+.2f})", style={"color": color_var, "fontWeight": "950"}),
             ]
         )
 
-    g1, g2, g3 = _get(g, 0), _get(g, 1), _get(g, 2)
-    l1, l2, l3 = _get(l, 0), _get(l, 1), _get(l, 2)
+    def _top5_spikes(sec: str, want_up: bool) -> List[dict]:
+        if not sec:
+            return []
+
+        out = []
+        base_thr = max(1e-6, float(HOT_MIN_RET_PCT))
+
+        with LOCK:
+            for sym in SECTOR_DEFINITIONS.get(sec, []):
+                tok = symbol_to_token.get(sym)
+                if not tok:
+                    continue
+                dq = HOT_HISTORY.get(tok)
+                series = list(dq) if dq else None
+                if not series or len(series) < 2:
+                    continue
+
+                hr = _compute_hot_row_from_series(series)
+                if not hr:
+                    continue
+
+                up_sp = float(hr.get("up_spike_pct") or 0.0)
+                dn_sp = float(hr.get("down_spike_pct") or 0.0)  # negative
+                rng = float(hr.get("range_pct") or 0.0)
+
+                spike = up_sp if want_up else dn_sp
+                if want_up and spike <= 0:
+                    continue
+                if (not want_up) and spike >= 0:
+                    continue
+
+                out.append(
+                    {
+                        "Symbol": sym,
+                        "SpikeX": abs(spike) / base_thr,
+                        "Spike5": round(spike, 2),
+                        "_abs": abs(spike),
+                    }
+                )
+
+        out.sort(key=lambda r: float(r.get("_abs") or 0.0), reverse=True)
+        return [{k: v for k, v in r.items() if not k.startswith("_")} for r in out[:5]]
+
+    def _get(lst, i):
+        return lst[i] if len(lst) > i else ""
+
+    g1, g2, g3 = _get(top3, 0), _get(top3, 1), _get(top3, 2)
+    l1, l2, l3 = _get(bot3, 0), _get(bot3, 1), _get(bot3, 2)
 
     return (
-        g1["rows"], g2["rows"], g3["rows"],
-        l1["rows"], l2["rows"], l3["rows"],
-        _title(g1["sector"], "var(--good)"),
-        _title(g2["sector"], "var(--good)"),
-        _title(g3["sector"], "var(--good)"),
-        _title(l1["sector"], "var(--bad)"),
-        _title(l2["sector"], "var(--bad)"),
-        _title(l3["sector"], "var(--bad)"),
+        _top5_spikes(g1, True),
+        _top5_spikes(g2, True),
+        _top5_spikes(g3, True),
+        _top5_spikes(l1, False),
+        _top5_spikes(l2, False),
+        _top5_spikes(l3, False),
+        _title(g1, "var(--good)"),
+        _title(g2, "var(--good)"),
+        _title(g3, "var(--good)"),
+        _title(l1, "var(--bad)"),
+        _title(l2, "var(--bad)"),
+        _title(l3, "var(--bad)"),
     )
-
-
 @dash_app.callback(
     Output("market-heatmap", "figure"),
     Input("refresh_sectors", "n_intervals"),

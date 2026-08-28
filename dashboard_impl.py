@@ -2905,7 +2905,7 @@ def update_top_stats(_):
     chips = [
         dbc.Badge("Offline" if offline else "Live", color=("danger" if offline else "success"), className="stat-badge"),
         html.A(
-            "Volm",
+            "SPIKES",
             href=f"{BASE}volm",
             target="_blank",
             className="stat-chip",

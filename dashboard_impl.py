@@ -170,7 +170,7 @@ SECTOR_DEFINITIONS = {
     ],
     "AUTO": [
         "BOSCHLTD", "TIINDIA", "HEROMOTOCO",
-        "M&M", "EICHERMOT", "EXIDEIND",
+        "M&M", "EICHERMOT",
         "BAJAJ-AUTO", "ASHOKLEY",
         "MARUTI", "TVSMOTOR",
         "MOTHERSON", "SONACOMS",

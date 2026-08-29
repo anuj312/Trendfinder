@@ -1776,3 +1776,467 @@ border-radius: 14px !important;
 .tt-sec-tooltip.bs-tooltip-bottom .tooltip-arrow::before{ border-bottom-color:#ffffff !important; }
 .tt-sec-tooltip.bs-tooltip-start  .tooltip-arrow::before{ border-left-color:#ffffff !important; }
 .tt-sec-tooltip.bs-tooltip-end    .tooltip-arrow::before{ border-right-color:#ffffff !important; }
+
+/* ==========================================================================
+   PREMIUM SECTION HEADERS (SECTOR FLOW / MOVERS / LOSERS / HEATMAP)
+   Drop-in: paste at END of file to override earlier rules.
+========================================================================== */
+
+/* --- Tokens for premium headings --- */
+:root{
+  --hdr-bg:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--text) 6%, transparent),
+      color-mix(in srgb, var(--text) 2%, transparent)
+    );
+  --hdr-border:
+    linear-gradient(135deg,
+      color-mix(in srgb, #ffffff 28%, transparent),
+      color-mix(in srgb, #60a5fa 20%, transparent),
+      color-mix(in srgb, #a78bfa 18%, transparent),
+      color-mix(in srgb, #ffffff 18%, transparent)
+    );
+
+  --hdr-shadow:
+    0 14px 34px rgba(0,0,0,0.18),
+    inset 0 1px 0 rgba(255,255,255,0.10);
+
+  --hdr-text: color-mix(in srgb, var(--text) 92%, transparent);
+  --hdr-subtle: color-mix(in srgb, var(--muted) 92%, transparent);
+
+  --hdr-sheen:
+    linear-gradient(90deg,
+      transparent 0%,
+      rgba(255,255,255,0.18) 18%,
+      rgba(255,255,255,0.06) 45%,
+      rgba(255,255,255,0.18) 72%,
+      transparent 100%
+    );
+}
+
+html[data-theme="light"]{
+  --hdr-bg: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,250,252,0.92));
+  --hdr-border:
+    linear-gradient(135deg,
+      rgba(15,23,42,0.12),
+      rgba(59,130,246,0.18),
+      rgba(99,102,241,0.16),
+      rgba(15,23,42,0.10)
+    );
+
+  --hdr-shadow:
+    0 10px 24px rgba(15,23,42,0.08),
+    inset 0 1px 0 rgba(255,255,255,0.75);
+
+  --hdr-text: rgba(15,23,42,0.92);
+  --hdr-subtle: rgba(51,65,85,0.85);
+  --hdr-sheen:
+    linear-gradient(90deg,
+      transparent 0%,
+      rgba(255,255,255,0.75) 20%,
+      rgba(255,255,255,0.0) 55%,
+      rgba(255,255,255,0.60) 80%,
+      transparent 100%
+    );
+}
+
+/* ==========================================================================
+   A) SECTOR FLOW (H5.page-title--pill)
+========================================================================== */
+.page-title.page-title--pill{
+  position: relative !important;
+  isolation: isolate !important;
+
+  padding: 12px 18px !important;
+  border-radius: 999px !important;
+
+  /* gradient border using background-clip trick */
+  border: 1px solid transparent !important;
+  background:
+    var(--hdr-bg) padding-box,
+    var(--hdr-border) border-box !important;
+
+  box-shadow: var(--hdr-shadow) !important;
+
+  color: var(--hdr-text) !important;
+  letter-spacing: 0.18em !important;
+  font-weight: 950 !important;
+
+  /* tiny “premium” blur glass feel */
+  backdrop-filter: blur(16px) saturate(1.25) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.25) !important;
+}
+
+/* Replace your current dot with a “ringed jewel” */
+.page-title.page-title--pill::before{
+  width: 8px !important;
+  height: 8px !important;
+  background: radial-gradient(circle at 35% 35%, #fff 0%, rgba(255,255,255,0.35) 40%, transparent 70%) !important;
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, #60a5fa 14%, transparent),
+    0 0 18px color-mix(in srgb, #60a5fa 22%, transparent) !important;
+}
+
+/* Sheen sweep (subtle, not flashy) */
+.page-title.page-title--pill::after{
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  border-radius: 999px !important;
+  background: var(--hdr-sheen) !important;
+  opacity: 0.20 !important;
+  transform: translateX(-35%) !important;
+  filter: blur(0.2px) !important;
+  z-index: -1 !important;
+  animation: ttSheen 7.5s cubic-bezier(0.2, 0.8, 0.2, 1) infinite !important;
+  pointer-events: none !important;
+}
+
+@keyframes ttSheen{
+  0%   { transform: translateX(-55%); opacity: 0.00; }
+  12%  { opacity: 0.24; }
+  38%  { transform: translateX(55%); opacity: 0.08; }
+  100% { transform: translateX(55%); opacity: 0.00; }
+}
+
+/* ==========================================================================
+   B) SECTION PILLS (H6: MARKET MOVERS / MARKET LOSERS / HEATMAP etc.)
+   Your app uses many H6s inside .page-wrap; this upgrades them.
+========================================================================== */
+.page-wrap h6{
+  position: relative !important;
+  isolation: isolate !important;
+
+  border: 1px solid transparent !important;
+  background:
+    var(--hdr-bg) padding-box,
+    var(--hdr-border) border-box !important;
+
+  box-shadow: var(--hdr-shadow) !important;
+
+  color: var(--hdr-subtle) !important;
+  letter-spacing: 0.20em !important;
+  font-weight: 950 !important;
+
+  backdrop-filter: blur(14px) saturate(1.2) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.2) !important;
+}
+
+/* Make the leading dot look more “designed” */
+.page-wrap h6::before{
+  width: 7px !important;
+  height: 7px !important;
+  border-radius: 999px !important;
+  background: radial-gradient(circle at 35% 35%, rgba(255,255,255,0.95), rgba(255,255,255,0.20) 45%, transparent 72%) !important;
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--text) 10%, transparent),
+    0 0 18px rgba(255,255,255,0.06) !important;
+}
+
+/* ==========================================================================
+   C) Color-coded premium accents for Movers/Losers headings
+   (you already set these classes in the Dash layout)
+========================================================================== */
+.page-wrap h6.tt-top15-gainers{
+  color: color-mix(in srgb, var(--good) 70%, var(--hdr-subtle)) !important;
+}
+.page-wrap h6.tt-top15-gainers::before{
+  background: radial-gradient(circle at 35% 35%, #ffffff 0%, color-mix(in srgb, var(--good) 65%, transparent) 45%, transparent 72%) !important;
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--good) 18%, transparent),
+    0 0 22px color-mix(in srgb, var(--good) 18%, transparent) !important;
+}
+
+.page-wrap h6.tt-top15-losers{
+  color: color-mix(in srgb, var(--bad) 72%, var(--hdr-subtle)) !important;
+}
+.page-wrap h6.tt-top15-losers::before{
+  background: radial-gradient(circle at 35% 35%, #ffffff 0%, color-mix(in srgb, var(--bad) 65%, transparent) 45%, transparent 72%) !important;
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--bad) 18%, transparent),
+    0 0 22px color-mix(in srgb, var(--bad) 18%, transparent) !important;
+}
+
+/* Slightly stronger hover (feels “premium UI”) */
+.page-wrap h6:hover,
+.page-title.page-title--pill:hover{
+  transform: translateY(-1px);
+  transition: transform .18s ease, filter .18s ease;
+  filter: brightness(1.06);
+}
+
+/* ==========================================================================
+   ULTRA PREMIUM HEADERS (V2) — METAL + GLASS + DEPTH
+   Targets:
+     - H5.page-title--pill        (SECTOR FLOW)
+     - .page-wrap h6              (MARKET MOVERS / MARKET LOSERS / HEATMAP)
+     - h6.tt-top15-gainers/losers (accent variants)
+   Paste at END of file.
+========================================================================== */
+
+/* --- Premium tokens --- */
+:root{
+  /* surface */
+  --tt-hdr-surface:
+    radial-gradient(120% 180% at 18% 10%, rgba(255,255,255,0.10), transparent 55%),
+    radial-gradient(140% 200% at 86% 0%, rgba(120,160,255,0.10), transparent 60%),
+    linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.018));
+
+  /* metallic border (outer) */
+  --tt-hdr-border:
+    linear-gradient(135deg,
+      rgba(255,255,255,0.34) 0%,
+      rgba(140,170,255,0.22) 24%,
+      rgba(167,139,250,0.18) 52%,
+      rgba(255,255,255,0.18) 76%,
+      rgba(255,255,255,0.30) 100%
+    );
+
+  /* inner hairline border */
+  --tt-hdr-inner-stroke: rgba(255,255,255,0.10);
+
+  /* depth */
+  --tt-hdr-shadow:
+    0 18px 44px rgba(0,0,0,0.30),
+    0 8px 18px rgba(0,0,0,0.18),
+    inset 0 1px 0 rgba(255,255,255,0.14),
+    inset 0 -1px 0 rgba(0,0,0,0.30);
+
+  /* subtle gloss line */
+  --tt-hdr-gloss:
+    linear-gradient(90deg,
+      transparent 0%,
+      rgba(255,255,255,0.16) 18%,
+      rgba(255,255,255,0.06) 48%,
+      rgba(255,255,255,0.14) 78%,
+      transparent 100%
+    );
+
+  /* premium text */
+  --tt-hdr-text-grad:
+    linear-gradient(180deg,
+      rgba(255,255,255,0.96),
+      rgba(255,255,255,0.74)
+    );
+
+  --tt-hdr-muted: color-mix(in srgb, var(--muted) 92%, transparent);
+
+  /* jewel dot */
+  --tt-hdr-dot:
+    radial-gradient(circle at 35% 30%,
+      rgba(255,255,255,0.95) 0%,
+      rgba(255,255,255,0.35) 28%,
+      rgba(96,165,250,0.22) 45%,
+      transparent 72%
+    );
+}
+
+/* Light theme tuning (avoid “too shiny”) */
+html[data-theme="light"]{
+  --tt-hdr-surface:
+    radial-gradient(120% 180% at 18% 10%, rgba(15,23,42,0.05), transparent 58%),
+    radial-gradient(140% 200% at 86% 0%, rgba(59,130,246,0.06), transparent 62%),
+    linear-gradient(180deg, rgba(255,255,255,0.92), rgba(248,250,252,0.88));
+
+  --tt-hdr-border:
+    linear-gradient(135deg,
+      rgba(15,23,42,0.20) 0%,
+      rgba(59,130,246,0.22) 26%,
+      rgba(99,102,241,0.18) 55%,
+      rgba(15,23,42,0.16) 100%
+    );
+
+  --tt-hdr-inner-stroke: rgba(15,23,42,0.10);
+
+  --tt-hdr-shadow:
+    0 10px 24px rgba(15,23,42,0.10),
+    0 4px 10px rgba(15,23,42,0.06),
+    inset 0 1px 0 rgba(255,255,255,0.85),
+    inset 0 -1px 0 rgba(15,23,42,0.06);
+
+  --tt-hdr-text-grad:
+    linear-gradient(180deg,
+      rgba(15,23,42,0.92),
+      rgba(51,65,85,0.84)
+    );
+
+  --tt-hdr-dot:
+    radial-gradient(circle at 35% 30%,
+      rgba(255,255,255,0.95) 0%,
+      rgba(15,23,42,0.18) 32%,
+      rgba(59,130,246,0.20) 52%,
+      transparent 74%
+    );
+}
+
+/* ==========================================================================
+   A) SECTOR FLOW (H5 pill) — “Badge-grade” premium
+========================================================================== */
+.page-title.page-title--pill{
+  position: relative !important;
+  isolation: isolate !important;
+
+  padding: 12px 20px !important;
+  border-radius: 999px !important;
+
+  border: 1px solid transparent !important;
+  background:
+    var(--tt-hdr-surface) padding-box,
+    var(--tt-hdr-border) border-box !important;
+
+  box-shadow: var(--tt-hdr-shadow) !important;
+
+  /* premium text */
+  color: transparent !important;
+  background-image: var(--tt-hdr-text-grad) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+
+  font-weight: 980 !important;
+  letter-spacing: 0.22em !important;
+  text-transform: uppercase !important;
+
+  backdrop-filter: blur(18px) saturate(1.35) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.35) !important;
+
+  transform: translateZ(0);
+}
+
+/* inner stroke (engraved) */
+.page-title.page-title--pill::before{
+  content: "" !important;
+  position: absolute !important;
+  inset: 1px !important;
+  border-radius: 999px !important;
+  border: 1px solid var(--tt-hdr-inner-stroke) !important;
+  pointer-events: none !important;
+  z-index: -1 !important;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12);
+}
+
+/* sheen strip */
+.page-title.page-title--pill::after{
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  border-radius: 999px !important;
+  background: var(--tt-hdr-gloss) !important;
+  opacity: 0.14 !important;
+  transform: translateX(-55%) skewX(-18deg) !important;
+  pointer-events: none !important;
+  mix-blend-mode: screen;
+  animation: ttHdrSheen 7.8s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}
+
+@keyframes ttHdrSheen{
+  0%   { transform: translateX(-60%) skewX(-18deg); opacity: 0.00; }
+  12%  { opacity: 0.18; }
+  38%  { transform: translateX(60%) skewX(-18deg); opacity: 0.06; }
+  100% { transform: translateX(60%) skewX(-18deg); opacity: 0.00; }
+}
+
+/* reduce motion respect */
+@media (prefers-reduced-motion: reduce){
+  .page-title.page-title--pill::after{ animation: none !important; }
+}
+
+/* ==========================================================================
+   B) SECTION HEADERS (H6 pills) — “Panel-grade” premium
+========================================================================== */
+.page-wrap h6{
+  position: relative !important;
+  isolation: isolate !important;
+
+  padding: 10px 18px !important;
+  border-radius: 999px !important;
+
+  border: 1px solid transparent !important;
+  background:
+    var(--tt-hdr-surface) padding-box,
+    var(--tt-hdr-border) border-box !important;
+
+  box-shadow: var(--tt-hdr-shadow) !important;
+
+  /* premium typography */
+  color: transparent !important;
+  background-image: var(--tt-hdr-text-grad) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+
+  font-weight: 950 !important;
+  letter-spacing: 0.20em !important;
+  text-transform: uppercase !important;
+
+  backdrop-filter: blur(16px) saturate(1.25) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.25) !important;
+}
+
+/* replace your dot with “jewel” */
+.page-wrap h6::before{
+  content: "" !important;
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 999px !important;
+
+  background: var(--tt-hdr-dot) !important;
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, #60a5fa 16%, transparent),
+    0 0 22px rgba(96,165,250,0.18) !important;
+}
+
+/* inner stroke for H6 too */
+.page-wrap h6::after{
+  content: "" !important;
+  position: absolute !important;
+  inset: 1px !important;
+  border-radius: 999px !important;
+  border: 1px solid var(--tt-hdr-inner-stroke) !important;
+  pointer-events: none !important;
+  opacity: 0.95;
+}
+
+/* Hover = subtle “lift”, very premium */
+.page-wrap h6:hover,
+.page-title.page-title--pill:hover{
+  transform: translateY(-1px);
+  filter: brightness(1.07);
+  transition: transform .18s ease, filter .18s ease;
+}
+
+/* ==========================================================================
+   C) ACCENT VARIANTS: MOVERS / LOSERS
+========================================================================== */
+
+/* Movers: green tint border + dot glow */
+.page-wrap h6.tt-top15-gainers{
+  background:
+    radial-gradient(120% 180% at 18% 10%, color-mix(in srgb, var(--good) 16%, transparent), transparent 58%),
+    var(--tt-hdr-surface) padding-box,
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--good) 45%, rgba(255,255,255,0.20)),
+      rgba(255,255,255,0.18)
+    ) border-box !important;
+}
+.page-wrap h6.tt-top15-gainers::before{
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--good) 18%, transparent),
+    0 0 26px color-mix(in srgb, var(--good) 18%, transparent) !important;
+}
+
+/* Losers: red tint border + dot glow */
+.page-wrap h6.tt-top15-losers{
+  background:
+    radial-gradient(120% 180% at 18% 10%, color-mix(in srgb, var(--bad) 14%, transparent), transparent 58%),
+    var(--tt-hdr-surface) padding-box,
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--bad) 42%, rgba(255,255,255,0.20)),
+      rgba(255,255,255,0.18)
+    ) border-box !important;
+}
+.page-wrap h6.tt-top15-losers::before{
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--bad) 18%, transparent),
+    0 0 26px color-mix(in srgb, var(--bad) 18%, transparent) !important;
+}
+
+

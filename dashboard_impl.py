@@ -2967,18 +2967,18 @@ def toggle_baseline_mode(_n, mode):
 # =============================================================================
 @dash_app.callback(
     Output("sector-bars", "children"),
-    Input("refresh_sectors", "n_intervals"),
+    Input("refresh_sectorbars", "n_intervals"),   # ✅ slow interval (tooltip stable)
     Input("sectors-sort", "value"),
     Input("sectors-sort-dd", "value"),
     Input("baseline-store", "data"),
 )
 def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
     """
-    Sector bars with NON-CLIPPED tooltip (uses dbc.Tooltip overlay).
-
-    Key change vs your older version:
-      - Tooltip is now dbc.Tooltip targeted to the bar-track div id (secbar-<sector>)
-        so it won't get hidden/clipped near edges.
+    Sector bars:
+      - Always shows Sector name + SectorScore (xx.xx x) under it
+      - Tooltip is dbc.Tooltip targeted to the bar track (not clipped)
+      - Baseline toggle: AUTO / CENTER
+      - Sort modes supported (SectorScore / RVOLm / RVOLm μ / RVOLm5 μ / %CHG / MOMENTUM)
     """
     try:
         # ----------------------------
@@ -2992,13 +2992,14 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         else:
             sort_by = sort_by_radio or sort_by_dd
 
-        sort_by = (sort_by or "DirR").strip()
+        sort_by = (sort_by or "SectorScore").strip()
         baseline_mode = (baseline_mode or "AUTO").upper().strip()
         if baseline_mode not in ("AUTO", "CENTER"):
             baseline_mode = "AUTO"
 
         with CACHE_LOCK:
             agg = dict(CACHE.get("sector_agg") or {})
+
         if not agg:
             return html.Div("Loading sector bars…", className="hint")
 
@@ -3018,6 +3019,7 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
             plot_scale = 1.0
 
         else:
+            # other metrics
             if sort_by == "DirR":
                 metric = "DirRRel"
             elif sort_by == "%Change":
@@ -3027,7 +3029,7 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
             elif sort_by == "RVOL5Mean":
                 metric = "RVOL5NetMean"
             else:
-                metric = "RVOLmNetSum"
+                metric = "RVOLmNetSum"  # default
 
             def plot_val(m: dict) -> float:
                 return float((m or {}).get(metric) or 0.0)
@@ -3035,7 +3037,7 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
             plot_scale = float(SECTOR_DIRR_DISPLAY_SCALE) if metric == "DirRRel" else 1.0
 
         # ----------------------------
-        # ORDER
+        # ORDER (your desired behavior)
         # ----------------------------
         if score_mode:
             # Greens left: score desc ; Reds right: score asc (small->big)
@@ -3044,30 +3046,26 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
                 m = m or {}
                 score = float(m.get("SectorScore") or 0.0)
                 dirrrel = float(m.get("DirRRel") or 0.0)
-                if dirrrel >= 0:
-                    pos.append((score, sector, m))
-                else:
-                    neg.append((score, sector, m))
+                (pos if dirrrel >= 0 else neg).append((score, sector, m))
 
             pos.sort(key=lambda x: x[0], reverse=True)
-            neg.sort(key=lambda x: x[0])
+            neg.sort(key=lambda x: x[0])  # small -> big
             items = [(s, m) for (_sc, s, m) in pos] + [(s, m) for (_sc, s, m) in neg]
 
         else:
             if sort_by == "DirR":
-                # Momentum ordering: greens big->small; reds SMALL->BIG
+                # Momentum ordering: greens big->small; reds SMALL->BIG (by magnitude)
                 pos, neg = [], []
                 for sector, m in agg.items():
                     v = float((m or {}).get("DirRRel") or 0.0)
                     if v >= 0:
                         pos.append((v, sector, m or {}))
                     else:
-                        neg.append((abs(v), sector, m or {}))  # abs for ordering
+                        neg.append((abs(v), sector, m or {}))
 
                 pos.sort(key=lambda x: x[0], reverse=True)
-                neg.sort(key=lambda x: x[0], reverse=False)
+                neg.sort(key=lambda x: x[0])  # small -> big magnitude
                 items = [(s, m) for (_v, s, m) in pos] + [(s, m) for (_v, s, m) in neg]
-
             else:
                 # other metrics: simple descending
                 if sort_by == "%Change":
@@ -3136,11 +3134,13 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
                 fmt_tick = lambda v: f"{float(v):.2f}"
 
         PLOT_H = int(SECTOR_PLOT_H_PX)
-        LABEL_BAND = 28
+
+        # ✅ 2-line labels (Sector + SectorScore)
+        LABEL_BAND = 44
         TRACK_H = max(160, PLOT_H - LABEL_BAND)
 
         pos_cap = cap_from_abs(pos_vals, CAP_Q, MIN_CAP, CAP_MUL)
-        neg_cap = cap_from_abs(neg_abs, CAP_Q, MIN_CAP, CAP_MUL)
+        neg_cap = cap_from_abs(neg_abs,  CAP_Q, MIN_CAP, CAP_MUL)
 
         # ----------------------------
         # value -> px (Baseline CENTER / AUTO)
@@ -3201,7 +3201,9 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         axis_ticks = []
         for tv in ticks:
             top_pct = ((tick_max - float(tv)) / (axis_span_ticks + eps)) * 100.0
-            axis_ticks.append(html.Div(fmt_tick(tv), className="sector-axis-tick", style={"top": f"{top_pct:.2f}%"}))
+            axis_ticks.append(
+                html.Div(fmt_tick(tv), className="sector-axis-tick", style={"top": f"{top_pct:.2f}%"})
+            )
 
         axis = html.Div(axis_ticks, className="sector-hist-axis", style={"height": f"{TRACK_H}px"})
 
@@ -3210,8 +3212,8 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         # ----------------------------
         # tooltip value (single line)
         # ----------------------------
-        def tooltip_value(sector_metrics: dict, v_scaled: float) -> str:
-            m = sector_metrics or {}
+        def tooltip_value(m: dict, v_scaled: float) -> str:
+            m = m or {}
             if sort_by == "SectorScore":
                 return f"{float(m.get('SectorScore') or 0.0):.2f}x"
             if sort_by == "DirR":
@@ -3222,8 +3224,12 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
                 return f"{float(v_scaled):.2f}x"
             return f"{float(v_scaled):.2f}"
 
+        def _safe_id(s: str) -> str:
+            # stable id for tooltip target
+            return "".join(ch if ch.isalnum() else "-" for ch in (s or ""))
+
         # ----------------------------
-        # bars (with dbc.Tooltip overlay)
+        # bars
         # ----------------------------
         for sector, m in items:
             m = m or {}
@@ -3231,18 +3237,18 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
 
             v_scaled = float(plot_val(m)) * plot_scale
             bar_px = to_px(v_scaled)
+
+            sector_score_txt = f"{float(m.get('SectorScore') or 0.0):.2f}x"
             tip_val = tooltip_value(m, v_scaled)
 
-            target_id = f"secbar-{sector}"  # unique + stable
+            target_id = f"secbar-{_safe_id(sector)}"
 
             children.append(
                 html.Div(
                     [
+                        # ✅ Tooltip not clipped (overlay)
                         dbc.Tooltip(
-                            [
-                                html.Div(disp, style={"fontWeight": "900"}),
-                                html.Div(tip_val, style={"fontWeight": "800"}),
-                            ],
+                            tip_val,  # single line
                             target=target_id,
                             placement="top",
                             delay={"show": 0, "hide": 0},
@@ -3254,6 +3260,7 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
                             refresh=False,
                             children=html.Div(
                                 [
+                                    # bar track
                                     html.Div(
                                         [
                                             html.Div(
@@ -3261,7 +3268,7 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
                                                 style={"height": f"{bar_px:.2f}px"},
                                             )
                                         ],
-                                        id=target_id,  # tooltip target
+                                        id=target_id,
                                         className="sector-hist-track",
                                         style={
                                             "height": f"{TRACK_H}px",
@@ -3270,17 +3277,23 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
                                             "position": "relative",
                                         },
                                     ),
+                                    # ✅ 2-line label: Sector + SectorScore
                                     html.Div(
-                                        disp,
+                                        [
+                                            html.Div(disp, className="sector-hist-name-main"),
+                                            html.Div(sector_score_txt, className="sector-hist-name-sub"),
+                                        ],
                                         className="sector-hist-name",
                                         style={
                                             "height": f"{LABEL_BAND}px",
                                             "display": "flex",
+                                            "flexDirection": "column",
                                             "alignItems": "center",
                                             "justifyContent": "center",
                                             "position": "relative",
                                             "zIndex": 5,
                                             "marginTop": "6px",
+                                            "lineHeight": "1.05",
                                         },
                                     ),
                                 ],

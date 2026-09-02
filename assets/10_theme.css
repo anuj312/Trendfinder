@@ -2240,3 +2240,16 @@ html[data-theme="light"]{
 }
 
 
+.sector-hist-name-main{
+  font-weight: 900;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  opacity: 0.95;
+}
+
+.sector-hist-name-sub{
+  font-weight: 1150;
+  font-size: 11px;
+  opacity: 0.90;
+  margin-top: 2px;
+}

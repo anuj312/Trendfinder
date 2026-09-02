@@ -2253,3 +2253,41 @@ html[data-theme="light"]{
   opacity: 0.90;
   margin-top: 2px;
 }
+/* ===========================
+   FIX: SECTOR FLOW dot + text alignment
+   =========================== */
+.page-title.page-title--pill{
+  display: inline-flex !important;
+  align-items: center !important;
+  line-height: 1 !important;
+  gap: 12px !important;
+
+  /* keep your premium depth + add inner stroke here (NOT in ::before) */
+  box-shadow:
+    var(--tt-hdr-shadow) !important,
+    inset 0 0 0 1px var(--tt-hdr-inner-stroke) !important;
+}
+
+/* Make ::before the DOT (as a flex item) */
+.page-title.page-title--pill::before{
+  content: "" !important;
+
+  /* IMPORTANT: kill the absolute/inset stroke behavior */
+  position: static !important;
+  inset: auto !important;
+
+  display: inline-block !important;
+  flex: 0 0 auto !important;
+
+  width: 10px !important;
+  height: 10px !important;
+  border-radius: 999px !important;
+
+  background: var(--tt-hdr-dot) !important;
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, #60a5fa 14%, transparent),
+    0 0 18px color-mix(in srgb, #60a5fa 22%, transparent) !important;
+
+  /* tiny vertical nudge if needed */
+  transform: translateY(0.5px) !important;
+}

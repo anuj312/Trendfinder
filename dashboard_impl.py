@@ -39,8 +39,26 @@ log = logging.getLogger("turbotrades.dashboard")
 BASE = "/dash/"
 IST = ZoneInfo("Asia/Kolkata")
 
-API_KEY = os.getenv("KITE_API_KEY", "").strip()
-ACCESS_TOKEN = os.getenv("KITE_ACCESS_TOKEN", "").strip()
+def _clean_env(x: str) -> str:
+    # removes whitespace + accidental quotes from Render env vars
+    return (x or "").strip().strip('"').strip("'")
+
+
+def _fingerprint_secret(s: str, tail: int = 6) -> str:
+    # safe fingerprint: does NOT print full secret
+    s = s or ""
+    if not s:
+        return "EMPTY"
+    t = s[-tail:] if len(s) >= tail else s
+    return f"len={len(s)} tail={t}"
+
+
+API_KEY = _clean_env(os.getenv("KITE_API_KEY", ""))
+ACCESS_TOKEN = _clean_env(os.getenv("KITE_ACCESS_TOKEN", ""))
+
+log.info("Kite ENV API_KEY       %s", _fingerprint_secret(API_KEY, tail=4))
+log.info("Kite ENV ACCESS_TOKEN  %s", _fingerprint_secret(ACCESS_TOKEN, tail=8))
+
 if not API_KEY or not ACCESS_TOKEN:
     raise RuntimeError("Missing KITE_API_KEY / KITE_ACCESS_TOKEN environment variables.")
 
@@ -326,6 +344,15 @@ def _record_tick_batch(count: int, last_dt: Optional[datetime]):
 
     LAST_TICK_TS = now
     LAST_TICK_DT = last_dt or datetime.now()
+    
+def verify_kite_rest_auth() -> None:
+    """Logs whether Kite REST auth works in this environment."""
+    try:
+        prof = kite.profile()
+        uid = prof.get("user_id") if isinstance(prof, dict) else None
+        log.info("Kite REST auth OK user_id=%s", uid)
+    except Exception as e:
+        log.exception("Kite REST auth FAILED on this host: %r", e)    
 
 
 def _hot_history_push(token: int, epoch: float, ltp: float, cumvol: Optional[float]):
@@ -3652,6 +3679,7 @@ async def _startup():
     init_u_curve_once()
     start_pace_curve_builder_once()
     seed_daily_stats_once(per_req_sleep=SEED_SLEEP_SEC)
+    verify_kite_rest_auth()  
     start_ticker_once()
     load_nfo_instruments_once()
     start_orb_seed_worker_once()   

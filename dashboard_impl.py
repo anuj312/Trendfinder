@@ -2424,8 +2424,8 @@ def sectors_page():
       - Two intervals:
           * refresh_sectors     -> leaderboards/dials/heatmap (fast)
           * refresh_sectorbars  -> sector bars (slower) so tooltips don't vanish while hovering
-      - Burst column uses JS renderer "BurstCell" (arrow colored, time normal)
-      - AgGrid has dangerously_allow_code=True (required for JS renderers/formatters)
+      - Sort order (as requested): MOMENTUM, RVOL, RVOLM M, %CHG, SCORE
+      - Sector bar label (below sector name) will be driven by the selected sort
     """
 
     # Top refresh (keep this fast for grids/heatmap/dials)
@@ -2433,6 +2433,9 @@ def sectors_page():
     # Sector bars refresh (slower so hover tooltip stays visible)
     REFRESH_SECTORBARS_MS = 15000
 
+    # ----------------------------
+    # Top15 grids
+    # ----------------------------
     top15_cols_desktop = [
         {
             "field": "Symbol",
@@ -2461,7 +2464,6 @@ def sectors_page():
             "headerClass": "ag-right-aligned-header",
             "cellClass": "ag-right-aligned-cell",
         },
-        # ✅ Burst: arrow-only color handled by JS BurstCell
         {
             "field": "Burst",
             "headerName": "BURST",
@@ -2510,7 +2512,6 @@ def sectors_page():
             "headerClass": "ag-right-aligned-header",
             "cellClass": "ag-right-aligned-cell",
         },
-        # ✅ Burst: arrow-only color handled by JS BurstCell
         {
             "field": "Burst",
             "headerName": "BRK",
@@ -2555,12 +2556,22 @@ def sectors_page():
             defaultColDef={"sortable": True, "resizable": True, "flex": 1},
             dashGridOptions=grid_opts,
             style={"height": height, "width": "100%"},
-            dangerously_allow_code=True,  # ✅ required for JS renderers/formatters
+            dangerously_allow_code=True,
         )
+
+    # ----------------------------
+    # Sort options (requested order)
+    # ----------------------------
+    sort_options = [
+        {"label": "MOMENTUM", "value": "DirR"},
+        {"label": "RVOL",     "value": "RVOLm"},
+        {"label": "RVOLM M",  "value": "RVOLmMean"},
+        {"label": "%CHG",     "value": "%Change"},
+        {"label": "SCORE",    "value": "SectorScore"},
+    ]
 
     return html.Div(
         [
-            # ✅ separate tickers so bars don't re-render too often (tooltip stays visible)
             dcc.Interval(id="refresh_sectorbars", interval=REFRESH_SECTORBARS_MS, n_intervals=0),
             dcc.Interval(id="refresh_sectors", interval=REFRESH_SECTORS_MS, n_intervals=0),
 
@@ -2573,13 +2584,7 @@ def sectors_page():
                                 html.Div(
                                     dbc.RadioItems(
                                         id="sectors-sort",
-                                        options=[
-                                            {"label": "SCORE",    "value": "SectorScore"},
-                                            {"label": "RVOLm",    "value": "RVOLm"},
-                                            {"label": "RVOLm μ",  "value": "RVOLmMean"},
-                                            {"label": "%CHG",     "value": "%Change"},
-                                            {"label": "MOMENTUM", "value": "DirR"},
-                                        ],
+                                        options=sort_options,
                                         value="SectorScore",
                                         inline=True,
                                         className="sectors-sort ms-2",
@@ -2589,13 +2594,7 @@ def sectors_page():
                                 html.Div(
                                     dbc.Select(
                                         id="sectors-sort-dd",
-                                        options=[
-                                            {"label": "SCORE",    "value": "SectorScore"},
-                                            {"label": "RVOLm",    "value": "RVOLm"},
-                                            {"label": "RVOLm μ",  "value": "RVOLmMean"},
-                                            {"label": "RVOLm5 μ", "value": "RVOL5Mean"},
-                                            {"label": "MOMENTUM", "value": "DirR"},
-                                        ],
+                                        options=sort_options,
                                         value="SectorScore",
                                         size="sm",
                                         className="sectors-sort-dd",
@@ -2629,7 +2628,12 @@ def sectors_page():
                         dbc.Col(
                             [
                                 html.H6("MARKET MOVERS", className="tt-top15-title tt-top15-gainers"),
-                                build_grid("top15-gainers-grid", "min(350px, 42vh)", top15_cols_desktop, grid_options_desktop),
+                                build_grid(
+                                    "top15-gainers-grid",
+                                    "min(350px, 42vh)",
+                                    top15_cols_desktop,
+                                    grid_options_desktop,
+                                ),
                             ],
                             md=6,
                         ),
@@ -2650,8 +2654,14 @@ def sectors_page():
             html.Div(
                 dbc.Tabs(
                     [
-                        dbc.Tab(label="MARKET MOVERS", children=build_grid("top15-gainers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile)),
-                        dbc.Tab(label="MARKET LOSERS", children=build_grid("top15-losers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile)),
+                        dbc.Tab(
+                            label="MARKET MOVERS",
+                            children=build_grid("top15-gainers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile),
+                        ),
+                        dbc.Tab(
+                            label="MARKET LOSERS",
+                            children=build_grid("top15-losers-grid-m", "60vh", top15_cols_mobile, grid_options_mobile),
+                        ),
                     ],
                     className="top15-tabs",
                 ),
@@ -2994,7 +3004,7 @@ def toggle_baseline_mode(_n, mode):
 # =============================================================================
 @dash_app.callback(
     Output("sector-bars", "children"),
-    Input("refresh_sectorbars", "n_intervals"),   # ✅ slow interval (tooltip stable)
+    Input("refresh_sectorbars", "n_intervals"),
     Input("sectors-sort", "value"),
     Input("sectors-sort-dd", "value"),
     Input("baseline-store", "data"),
@@ -3002,10 +3012,15 @@ def toggle_baseline_mode(_n, mode):
 def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
     """
     Sector bars:
-      - Always shows Sector name + SectorScore (xx.xx x) under it
-      - Tooltip is dbc.Tooltip targeted to the bar track (not clipped)
+      - Sort order handled by UI (MOMENTUM, RVOL, RVOLM M, %CHG, SCORE)
+      - Tooltip shows the plotted metric
+      - Value below sector name shows the selected metric:
+          * SCORE     -> SectorScore (x)
+          * %CHG      -> %ChangeMean (%)
+          * MOMENTUM  -> DirRRel (scaled for display)
+          * RVOL      -> RVOLmNetSum (x)
+          * RVOLM M   -> RVOLmNetMean (x)
       - Baseline toggle: AUTO / CENTER
-      - Sort modes supported (SectorScore / RVOLm / RVOLm μ / RVOLm5 μ / %CHG / MOMENTUM)
     """
     try:
         # ----------------------------
@@ -3030,11 +3045,11 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         if not agg:
             return html.Div("Loading sector bars…", className="hint")
 
-        score_mode = (sort_by == "SectorScore")
-
         # ----------------------------
         # plot value = controls bar height + sign/color
         # ----------------------------
+        score_mode = (sort_by == "SectorScore")
+
         if score_mode:
             # Height = SectorScore; sign/color = DirRRel sign
             def plot_val(m: dict) -> float:
@@ -3046,17 +3061,17 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
             plot_scale = 1.0
 
         else:
-            # other metrics
+            # map sort -> metric used for plotting
             if sort_by == "DirR":
                 metric = "DirRRel"
             elif sort_by == "%Change":
                 metric = "%ChangeMean"
             elif sort_by == "RVOLmMean":
                 metric = "RVOLmNetMean"
-            elif sort_by == "RVOL5Mean":
-                metric = "RVOL5NetMean"
+            elif sort_by == "RVOLm":
+                metric = "RVOLmNetSum"
             else:
-                metric = "RVOLmNetSum"  # default
+                metric = "RVOLmNetSum"
 
             def plot_val(m: dict) -> float:
                 return float((m or {}).get(metric) or 0.0)
@@ -3094,14 +3109,13 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
                 neg.sort(key=lambda x: x[0])  # small -> big magnitude
                 items = [(s, m) for (_v, s, m) in pos] + [(s, m) for (_v, s, m) in neg]
             else:
-                # other metrics: simple descending
+                # other metrics: simple descending by the underlying metric
                 if sort_by == "%Change":
                     mkey = "%ChangeMean"
                 elif sort_by == "RVOLmMean":
                     mkey = "RVOLmNetMean"
-                elif sort_by == "RVOL5Mean":
-                    mkey = "RVOL5NetMean"
                 else:
+                    # RVOLm
                     mkey = "RVOLmNetSum"
 
                 items = sorted(
@@ -3156,13 +3170,14 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
                 BAR_MIN_PX = 0.0
                 fmt_tick = lambda v: f"{float(v):+.1f}%"
             else:
+                # RVOLm / RVOLmMean
                 CAP_Q, CAP_MUL, MIN_CAP = 0.88, 1.20, 0.50
                 BAR_MIN_PX = 4.0
-                fmt_tick = lambda v: f"{float(v):.2f}"
+                fmt_tick = lambda v: f"{float(v):+.2f}x"
 
         PLOT_H = int(SECTOR_PLOT_H_PX)
 
-        # ✅ 2-line labels (Sector + SectorScore)
+        # 2-line labels (Sector + metric)
         LABEL_BAND = 44
         TRACK_H = max(160, PLOT_H - LABEL_BAND)
 
@@ -3228,31 +3243,42 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
         axis_ticks = []
         for tv in ticks:
             top_pct = ((tick_max - float(tv)) / (axis_span_ticks + eps)) * 100.0
-            axis_ticks.append(
-                html.Div(fmt_tick(tv), className="sector-axis-tick", style={"top": f"{top_pct:.2f}%"})
-            )
+            axis_ticks.append(html.Div(fmt_tick(tv), className="sector-axis-tick", style={"top": f"{top_pct:.2f}%"}))
 
         axis = html.Div(axis_ticks, className="sector-hist-axis", style={"height": f"{TRACK_H}px"})
 
         children = [axis, html.Div(className="sector-hist-zero-line")]
 
         # ----------------------------
-        # tooltip value (single line)
+        # tooltip + sub label
         # ----------------------------
-        def tooltip_value(m: dict, v_scaled: float) -> str:
+        def tooltip_value(sort_by_: str, m: dict, v_scaled: float) -> str:
             m = m or {}
-            if sort_by == "SectorScore":
+            if sort_by_ == "SectorScore":
                 return f"{float(m.get('SectorScore') or 0.0):.2f}x"
-            if sort_by == "DirR":
+            if sort_by_ == "DirR":
                 return f"{float(v_scaled):+.2f}"
-            if sort_by == "%Change":
+            if sort_by_ == "%Change":
                 return f"{float(v_scaled):+.2f}%"
-            if sort_by in ("RVOLmMean", "RVOL5Mean", "RVOLm"):
-                return f"{float(v_scaled):.2f}x"
-            return f"{float(v_scaled):.2f}"
+            # RVOLm / RVOLmMean
+            return f"{float(v_scaled):+.2f}x"
+
+        def sub_label(sort_by_: str, m: dict) -> str:
+            m = m or {}
+            if sort_by_ == "SectorScore":
+                return f"{float(m.get('SectorScore') or 0.0):.2f}x"
+            if sort_by_ == "%Change":
+                # ✅ requested: show %ChangeMean below sector
+                return f"{float(m.get('%ChangeMean') or 0.0):+.2f}%"
+            if sort_by_ == "DirR":
+                v = float(m.get("DirRRel") or 0.0) * float(SECTOR_DIRR_DISPLAY_SCALE)
+                return f"{v:+.2f}"
+            if sort_by_ == "RVOLmMean":
+                return f"{float(m.get('RVOLmNetMean') or 0.0):+.2f}x"
+            # RVOLm
+            return f"{float(m.get('RVOLmNetSum') or 0.0):+.2f}x"
 
         def _safe_id(s: str) -> str:
-            # stable id for tooltip target
             return "".join(ch if ch.isalnum() else "-" for ch in (s or ""))
 
         # ----------------------------
@@ -3265,17 +3291,16 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
             v_scaled = float(plot_val(m)) * plot_scale
             bar_px = to_px(v_scaled)
 
-            sector_score_txt = f"{float(m.get('SectorScore') or 0.0):.2f}x"
-            tip_val = tooltip_value(m, v_scaled)
+            tip_val = tooltip_value(sort_by, m, v_scaled)
+            sub_txt = sub_label(sort_by, m)
 
             target_id = f"secbar-{_safe_id(sector)}"
 
             children.append(
                 html.Div(
                     [
-                        # ✅ Tooltip not clipped (overlay)
                         dbc.Tooltip(
-                            tip_val,  # single line
+                            tip_val,
                             target=target_id,
                             placement="top",
                             delay={"show": 0, "hide": 0},
@@ -3304,11 +3329,11 @@ def render_sector_bars(_n, sort_by_radio, sort_by_dd, baseline_mode):
                                             "position": "relative",
                                         },
                                     ),
-                                    # ✅ 2-line label: Sector + SectorScore
+                                    # 2-line label: Sector + current metric
                                     html.Div(
                                         [
                                             html.Div(disp, className="sector-hist-name-main"),
-                                            html.Div(sector_score_txt, className="sector-hist-name-sub"),
+                                            html.Div(sub_txt, className="sector-hist-name-sub"),
                                         ],
                                         className="sector-hist-name",
                                         style={

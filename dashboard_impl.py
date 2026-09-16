@@ -266,7 +266,7 @@ SECTOR_DEFINITIONS = {
     "DEFENCE": [
         "ABB","BEL","BDL", "BHEL",
         "CGPOWER", "CUMMINSIND",
-        "HAL", "LT", "MAZDOCK",
+        "HAL", "LT", "MAZDOCK","COCHINSHIP",
         "SIEMENS", "SOLARINDS"
     ],
     "NIFTY_50": [
